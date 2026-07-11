@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { APP_VERSION } from "./version.js";
+import { APP_VERSION } from "./version.js?v=0.1.1";
 
 // ============================================================
 // DOM
