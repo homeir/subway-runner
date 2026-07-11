@@ -391,63 +391,63 @@ html, body {
 
 /* ========== On-screen touch buttons ========== */
 
-/* 手柄式布局：横屏握持时两只拇指落在屏幕左右下角，
-   按钮簇贴着两侧边缘、抬离底边，拇指不用挪位置就能按到 */
-.touch-pad {
+/* ========== Virtual joystick（左下角虚拟摇杆） ========== */
+/* 横屏握持时左手拇指自然落在左下角，摇杆放这里不用挪手；
+   右手拇指仍然可以在屏幕任意位置滑动 */
+
+.joystick {
   position: absolute;
-  bottom: max(12%, calc(env(safe-area-inset-bottom, 0px) + 48px));
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  z-index: 15;
-  pointer-events: none;
-}
-
-.touch-pad-left {
-  left: max(20px, env(safe-area-inset-left, 20px));
-}
-
-.touch-pad-right {
-  right: max(20px, env(safe-area-inset-right, 20px));
-  flex-direction: column;
-}
-
-.touch-btn {
-  width: 72px;
-  height: 72px;
+  left: max(24px, env(safe-area-inset-left, 24px));
+  bottom: max(10%, calc(env(safe-area-inset-bottom, 0px) + 40px));
+  width: 150px;
+  height: 150px;
   border-radius: 50%;
   border: 2px solid var(--glass-border);
   background: var(--glass);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  color: var(--fg);
-  font-size: 28px;
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  pointer-events: auto;
+  z-index: 15;
   touch-action: none;
-  transition: transform 0.1s ease, background 0.1s ease;
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.touch-btn:active {
-  transform: scale(0.88);
-  background: rgba(0, 212, 255, 0.3);
-  border-color: var(--accent);
+.joystick.active {
+  border-color: rgba(0, 212, 255, 0.45);
+  box-shadow: 0 0 24px rgba(0, 212, 255, 0.25);
 }
 
-.touch-btn-jump {
-  background: rgba(0, 212, 255, 0.12);
-  border-color: rgba(0, 212, 255, 0.3);
+/* 四个方向的提示箭头 */
+.joy-hint {
+  position: absolute;
+  font-size: 14px;
+  opacity: 0.35;
+  pointer-events: none;
 }
 
-.touch-btn-slide {
-  background: rgba(255, 107, 53, 0.12);
-  border-color: rgba(255, 107, 53, 0.3);
+.joy-up { top: 8px; left: 50%; transform: translateX(-50%); }
+.joy-down { bottom: 8px; left: 50%; transform: translateX(-50%); }
+.joy-left { left: 10px; top: 50%; transform: translateY(-50%); }
+.joy-right { right: 10px; top: 50%; transform: translateY(-50%); }
+
+.joystick-knob {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, rgba(120, 225, 255, 0.85), rgba(0, 150, 220, 0.75));
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), inset 0 -4px 10px rgba(0, 40, 80, 0.4);
+  pointer-events: none;
+  transition: transform 0.16s cubic-bezier(0.22, 1.4, 0.36, 1); /* 松手弹回 */
+}
+
+.joystick.active .joystick-knob {
+  transition: none; /* 拖动时无延迟跟手 */
 }
 
 /* ========== Animations ========== */
@@ -488,10 +488,13 @@ html, body {
   .gameover-panel {
     padding: 32px 32px;
   }
-  .touch-btn {
-    width: 64px;
-    height: 64px;
-    font-size: 26px;
+  .joystick {
+    width: 132px;
+    height: 132px;
+  }
+  .joystick-knob {
+    width: 56px;
+    height: 56px;
   }
 }
 
@@ -502,18 +505,13 @@ html, body {
   .score-value {
     font-size: 16px;
   }
-  .touch-btn {
-    width: 58px;
-    height: 58px;
-    font-size: 24px;
+  .joystick {
+    width: 118px;
+    height: 118px;
+    left: max(14px, env(safe-area-inset-left, 14px));
   }
-  .touch-pad {
-    gap: 10px;
-  }
-  .touch-pad-left {
-    left: max(12px, env(safe-area-inset-left, 12px));
-  }
-  .touch-pad-right {
-    right: max(12px, env(safe-area-inset-right, 12px));
+  .joystick-knob {
+    width: 50px;
+    height: 50px;
   }
 }

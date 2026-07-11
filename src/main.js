@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { APP_VERSION } from "./version.js?v=0.2.1";
+import { APP_VERSION } from "./version.js?v=0.2.2";
 
 // ============================================================
 // DOM
@@ -23,11 +23,9 @@ const bestScore = document.querySelector("#bestScore");
 const newRecordBadge = document.querySelector("#newRecordBadge");
 const hitFlash = document.querySelector("#hitFlash");
 
-// On-screen touch buttons
-const btnLeft = document.querySelector("#btnLeft");
-const btnRight = document.querySelector("#btnRight");
-const btnJump = document.querySelector("#btnJump");
-const btnSlide = document.querySelector("#btnSlide");
+// Virtual joystick
+const joystick = document.querySelector("#joystick");
+const joystickKnob = document.querySelector("#joystickKnob");
 
 versionBadge.textContent = `v${APP_VERSION}`;
 
@@ -107,7 +105,7 @@ const JUMP_BUFFER_TIME = 0.15; // 落地前一瞬间按跳也算数
 const SLIDE_DURATION = 0.7;
 const LANE_LERP_SPEED = 12;
 const CHUNK_LENGTH = 30;
-const VISIBLE_CHUNKS = 5;
+const VISIBLE_CHUNKS = 6; // 覆盖 ~150m，远端始终藏在雾后（fog far=130）
 const COIN_SPACING = 3.5;
 const COIN_VALUE = 10;
 const COIN_Y = 0.9; // 腰部高度，不挡视线
@@ -577,9 +575,12 @@ function moveWorld(dist) {
   }
 
   // Recycle chunks that passed the camera
+  // 注意: group.position.z 是这段隧道的【近端】，远端在 z - CHUNK_LENGTH。
+  // 必须等整段隧道都跑到身后（远端 > 5）才能回收，
+  // 否则会把眼前还剩 25 米的隧道整段删掉，看起来像突然重新进了一段隧道。
   for (let i = chunks.length - 1; i >= 0; i--) {
     const chunk = chunks[i];
-    if (chunk.group.position.z > 5) {
+    if (chunk.group.position.z - CHUNK_LENGTH > 5) {
       disposeChunk(chunk);
       chunks.splice(i, 1);
       // Find the furthest chunk (most negative z) and create new one beyond it
@@ -928,25 +929,81 @@ function setupInput() {
     }
   });
 
-  // --- On-screen buttons (primary for iPad/touch) ---
-  function bindBtn(el, action) {
-    if (!el) return;
-    el.addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      action();
-    });
-    // 阻止后续合成 click 再触发一次
-    el.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    });
+  // --- Virtual joystick（左下角摇杆，拨动方向触发动作） ---
+  // 手感设计：
+  //   拨过触发圈立即执行（换道/跳/铲），不用等松手
+  //   回到中心圈内重新武装，可以连续拨同一方向
+  //   按住不放直接滚向另一个方向，也会触发新动作（比如按住右再往上滚 = 跳）
+  // 半径按摇杆实际大小换算（小屏幕上摇杆会缩小）
+  let joyMaxR = 46; // 摇杆头最大移动半径 px
+  let joyTriggerR = 28; // 拨过这个距离触发动作
+  let joyRearmR = 13; // 回到这个距离以内重新武装
+  let joyPointerId = null;
+  let joyCenterX = 0;
+  let joyCenterY = 0;
+  let joyLastDir = null;
+
+  function joyAction(dir) {
+    if (dir === "left") moveLeft();
+    else if (dir === "right") moveRight();
+    else if (dir === "up") jump();
+    else if (dir === "down") slide();
   }
 
-  bindBtn(btnLeft, moveLeft);
-  bindBtn(btnRight, moveRight);
-  bindBtn(btnJump, jump);
-  bindBtn(btnSlide, slide);
+  function joyMove(e) {
+    const dx = e.clientX - joyCenterX;
+    const dy = e.clientY - joyCenterY;
+    const mag = Math.hypot(dx, dy);
+
+    // 摇杆头跟随手指（限制在最大半径内）
+    const clamped = Math.min(mag, joyMaxR);
+    const nx = mag > 0 ? dx / mag : 0;
+    const ny = mag > 0 ? dy / mag : 0;
+    joystickKnob.style.transform = `translate(${nx * clamped}px, ${ny * clamped}px)`;
+
+    if (mag < joyRearmR) {
+      joyLastDir = null; // 回中，重新武装
+      return;
+    }
+    if (mag >= joyTriggerR) {
+      const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
+      if (dir !== joyLastDir) {
+        joyLastDir = dir;
+        joyAction(dir);
+      }
+    }
+  }
+
+  joystick.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    joyPointerId = e.pointerId;
+    joystick.setPointerCapture(e.pointerId);
+    const rect = joystick.getBoundingClientRect();
+    joyCenterX = rect.left + rect.width / 2;
+    joyCenterY = rect.top + rect.height / 2;
+    joyMaxR = rect.width * 0.31;
+    joyTriggerR = rect.width * 0.19;
+    joyRearmR = rect.width * 0.09;
+    joyLastDir = null;
+    joystick.classList.add("active");
+    joyMove(e);
+  });
+
+  joystick.addEventListener("pointermove", (e) => {
+    if (e.pointerId === joyPointerId) joyMove(e);
+  });
+
+  function joyRelease(e) {
+    if (e.pointerId !== joyPointerId) return;
+    joyPointerId = null;
+    joyLastDir = null;
+    joystick.classList.remove("active");
+    joystickKnob.style.transform = "translate(0px, 0px)"; // 弹回中心
+  }
+
+  joystick.addEventListener("pointerup", joyRelease);
+  joystick.addEventListener("pointercancel", joyRelease);
 
   // --- Swipe / tap（鼠标和触屏统一处理） ---
   const SWIPE_THRESHOLD = 26; // px，滑动判定距离
