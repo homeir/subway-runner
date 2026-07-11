@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { APP_VERSION } from "./version.js?v=0.4.0";
+import { APP_VERSION } from "./version.js?v=0.5.0";
 
 // ============================================================
 // DOM
@@ -363,6 +363,38 @@ function generateChunkContent(group, zStart, obstacles, coins) {
     const sectionZ = -(s * sectionLen + sectionLen / 2);
     const roll = Math.random();
 
+    if (roll < 0.15 && s === 0) {
+      // 列车车队：斜坡列车 + 后面一列，车顶之间有缺口要跳过去！
+      const lane = Math.floor(Math.random() * LANE_COUNT);
+      const gap = 5;
+      const t1 = createTrain(LANE_X[lane], -8, true);
+      group.add(t1.mesh);
+      obstacles.push(t1);
+      const t2 = createTrain(LANE_X[lane], -8 - TRAIN_LEN - gap, false);
+      group.add(t2.mesh);
+      obstacles.push(t2);
+
+      // 两节车顶上都有金币，缺口上方一道金币弧线
+      for (let i = 0; i < 3; i++) {
+        const c1 = createCoin(LANE_X[lane], ROOF_H + COIN_Y, -8 + TRAIN_LEN / 2 - 2.5 - i * 3.5);
+        group.add(c1.mesh);
+        coins.push(c1);
+        const c2 = createCoin(LANE_X[lane], ROOF_H + COIN_Y, -8 - TRAIN_LEN - gap + TRAIN_LEN / 2 - 2 - i * 3.5);
+        group.add(c2.mesh);
+        coins.push(c2);
+      }
+      // 缺口上方的弧线（跳跃时正好吃到）
+      const gapCenter = -8 - TRAIN_LEN / 2 - gap / 2;
+      for (let i = 0; i < 3; i++) {
+        const arcY = ROOF_H + COIN_Y + [0.3, 0.7, 0.3][i];
+        const arc = createCoin(LANE_X[lane], arcY, gapCenter + (i - 1) * 1.8);
+        group.add(arc.mesh);
+        coins.push(arc);
+      }
+      s += 3; // 车队占满整段
+      continue;
+    }
+
     if (roll < 0.4 && s < 2) {
       // 列车（60% 概率带斜坡可以跑上车顶）
       const lane = Math.floor(Math.random() * LANE_COUNT);
@@ -517,12 +549,12 @@ function createTrain(x, z, hasRamp) {
     g.add(win);
   }
 
-  // 尾部斜坡（木板），从地面搭到车顶
+  // 斜坡（木板）搭在朝向玩家的一端：近端(+z)贴地，远端(-z)搭上车顶
   if (hasRamp) {
     const angle = Math.atan2(ROOF_H, RAMP_LEN);
     const ramp = new THREE.Mesh(rampGeo, rampMat);
     ramp.position.set(0, ROOF_H / 2 - 0.02, front + RAMP_LEN / 2);
-    ramp.rotation.x = -angle; // 近端(+z)在地面，远端(-z)搭在车顶
+    ramp.rotation.x = angle; // 正角度 = -z 那头翘起来搭在车顶
     ramp.castShadow = true;
     ramp.receiveShadow = true;
     g.add(ramp);
@@ -530,7 +562,7 @@ function createTrain(x, z, hasRamp) {
     for (let i = 0; i < 3; i++) {
       const stripe = new THREE.Mesh(rampStripeGeo, rampStripeMat);
       stripe.position.set(0, ROOF_H / 2 - 0.02, front + RAMP_LEN / 2);
-      stripe.rotation.x = -angle;
+      stripe.rotation.x = angle;
       stripe.translateZ(-RAMP_SLOPE_LEN / 2 + 1.2 + i * 1.5);
       g.add(stripe);
     }
@@ -731,9 +763,60 @@ function surfaceHeightAt(px) {
 }
 
 // ============================================================
+// 音效（WebAudio 现场合成，不需要任何素材文件）
+// 每个音 = 频率从 freq 滑向 freq2 + 音量渐弱的小包络
+// ============================================================
+let audioCtx = null;
+
+function ensureAudio() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    audioCtx = new AC();
+  }
+  if (audioCtx.state === "suspended") audioCtx.resume();
+}
+
+function tone(freq, freq2, dur, type, vol, delay = 0) {
+  if (!audioCtx || audioCtx.state !== "running") return;
+  const t0 = audioCtx.currentTime + delay;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t0);
+  osc.frequency.exponentialRampToValueAtTime(Math.max(1, freq2), t0 + dur);
+  gain.gain.setValueAtTime(vol, t0);
+  gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start(t0);
+  osc.stop(t0 + dur + 0.02);
+}
+
+const sfx = {
+  coin() {
+    tone(1568, 1568, 0.07, "square", 0.07);
+    tone(2093, 2093, 0.09, "square", 0.06, 0.06); // 叮-叮 两声
+  },
+  jump() {
+    tone(280, 620, 0.2, "sine", 0.18); // 往上滑的"嗖"
+  },
+  slide() {
+    tone(500, 180, 0.18, "sawtooth", 0.09); // 往下擦的"唰"
+  },
+  land() {
+    tone(150, 90, 0.08, "sine", 0.12); // 落地"咚"
+  },
+  crash() {
+    tone(220, 45, 0.45, "sawtooth", 0.28);
+    tone(160, 40, 0.5, "square", 0.18, 0.03); // 低沉的撞击声
+  },
+};
+
+// ============================================================
 // Game Logic
 // ============================================================
 function startGame() {
+  ensureAudio(); // 必须在用户点击里初始化，否则 iOS 不出声
   state.phase = "running";
   state.speed = START_SPEED;
   state.distance = 0;
@@ -764,6 +847,7 @@ function startGame() {
 function hitObstacle() {
   state.phase = "dying";
   state.cameraShake = 0.45;
+  sfx.crash();
   hitFlash.classList.add("show");
   setTimeout(showGameOver, 700);
 }
@@ -822,6 +906,7 @@ function updatePlayer(dt) {
       state.playerY = surface;
       state.playerVelY = 0;
       state.jumping = false;
+      sfx.land();
       if (state.slideOnLand) {
         state.slideOnLand = false;
         doSlide();
@@ -836,10 +921,12 @@ function updatePlayer(dt) {
       state.playerY = surface;
       state.playerVelY = 0;
       state.falling = false;
+      sfx.land();
     }
   } else {
-    // 表面一帧内突然抬升超过半米 = 一堵墙怼在脸上（高速时防止穿过车头判定）
-    if (surface > state.playerY + 0.55) {
+    // 表面一帧内突然抬升太多 = 一堵墙怼在脸上（高速时防止穿过车头判定）。
+    // 阈值要大于斜坡的最大合法爬升（满速+低帧率时一帧约 0.93m），否则会误判
+    if (surface > state.playerY + 1.2) {
       hitObstacle();
       return;
     }
@@ -945,6 +1032,7 @@ function collectCoins() {
         coin.mesh.visible = false;
         state.coins++;
         state.score += COIN_VALUE;
+        sfx.coin();
       }
     }
   }
@@ -955,11 +1043,13 @@ function doJump() {
   state.falling = false;
   state.sliding = false;
   state.playerVelY = JUMP_VELOCITY;
+  sfx.jump();
 }
 
 function doSlide() {
   state.sliding = true;
   state.slideTimer = SLIDE_DURATION;
+  sfx.slide();
 }
 
 function jump() {

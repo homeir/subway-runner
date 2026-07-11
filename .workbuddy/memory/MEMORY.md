@@ -24,7 +24,8 @@
 - 列车玩法 (核心): 列车是长障碍(TRAIN_LEN=13, ROOF_H=2.6), 60% 尾部带木斜坡(RAMP_LEN=4.2)
   - surfaceHeightAt(px): 脚下表面高度 = 铁轨0 / 斜坡线性渐变 / 车顶2.6
   - 贴地跑时 playerY 直接 snap 到 surface (斜坡自动爬升); 悬空则重力下落 (跑过车头掉下来)
-  - 防隧穿: 表面一帧抬升 >0.55m = 撞墙判撞 (高速时碰撞窗口可能被跳过)
+  - 防隧穿: 表面一帧抬升 >1.2m = 撞墙判撞 (v0.5.0 从 0.55 放宽:
+    斜坡满速+低帧率一帧合法爬升可达 0.93, 0.55 会误判撞墙上不了车)
   - 带斜坡列车的车顶放金币奖励; 无斜坡列车只能换道绕开
   - 列车四种配色(银/绿/红/蓝) + 挡风玻璃/大灯/红白警示条/侧窗
 - 小障碍: 路障(跳)/悬空横梁(铲) 只在地面车道
@@ -43,6 +44,14 @@
   否则会把眼前 25m 隧道整段删掉 (v0.1~0.2.1 的"隧道一段一段重进"bug); VISIBLE_CHUNKS=6
 - 所有 geometry/material 共享, chunk 回收不泄漏; 不再每 chunk 放点光源
 - 调试: 控制台 window.__game = { state, camera, chunks, startGame }
+
+## v0.5.0 新增
+- 修复斜坡方向反了: ramp rotation.x 必须是【正角度】(-z 端翘起搭上车顶, +z 端贴地朝玩家);
+  负角度会变成高的那头朝玩家, 视觉完全反向
+- 新地形: 列车车队 = 斜坡列车 + 5m 车顶缺口 + 第二列(无斜坡), 缺口上方弧线金币,
+  必须在车顶起跳飞跃缺口; 15% 概率出现且占满整个 chunk (s===0 时判定)
+- 音效: WebAudio 现场合成零素材 (tone() 频率滑音+音量包络), sfx.coin/jump/slide/land/crash;
+  audioCtx 必须在用户手势里创建 (startGame -> ensureAudio), 否则 iOS 不出声
 
 ## 待办
 - DNS: 需要在 Cloudflare 控制台添加 CNAME runner.luobin.hu -> subway-runner-dkj.pages.dev
