@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { APP_VERSION } from "./version.js?v=0.1.2";
+import { APP_VERSION } from "./version.js?v=0.1.3";
 
 // ============================================================
 // DOM
@@ -37,7 +37,7 @@ scene.background = new THREE.Color(0x1a2540);
 scene.fog = new THREE.Fog(0x1a2540, 50, 140);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 250);
-// Camera at z=0, looking toward -Z (default). Track extends in -Z direction.
+// Camera at z=0, looking toward -Z (Three.js default). Track extends in -Z.
 camera.position.set(0, 3.8, 0);
 camera.rotation.order = "YXZ";
 camera.rotation.x = -0.08;
@@ -165,8 +165,14 @@ const trainGeo = new THREE.BoxGeometry(1.8, 2.2, 8);
 
 // ============================================================
 // Chunk System
-// Track extends in -Z direction (ahead of camera which looks -Z)
-// Chunks move toward +Z (toward camera) to simulate running forward
+//
+// Track extends in -Z direction (camera looks -Z by default).
+// Each chunk is a Group whose position.z defines its world-space offset.
+// Inside the group, all mesh positions are LOCAL coordinates:
+//   z ranges from 0 (near edge, closest to camera) to -CHUNK_LENGTH (far edge).
+//
+// As the player "runs forward", chunks move toward +Z (toward camera).
+// When a chunk's position.z exceeds 5 (past the camera), it gets recycled.
 // ============================================================
 const chunks = [];
 
@@ -175,15 +181,19 @@ function createChunk(zStart) {
   group.position.z = zStart;
   scene.add(group);
 
+  // --- All mesh positions below are LOCAL (relative to group) ---
+  // Chunk spans from z=0 (near) to z=-CHUNK_LENGTH (far)
+  const centerZ = -CHUNK_LENGTH / 2;
+
   // Gravel bed
   const gravel = new THREE.Mesh(gravelGeo, gravelMat);
-  gravel.position.set(0, -0.1, zStart - CHUNK_LENGTH / 2);
+  gravel.position.set(0, -0.1, centerZ);
   gravel.receiveShadow = true;
   group.add(gravel);
 
   // Ground
   const ground = new THREE.Mesh(groundGeo, groundMat);
-  ground.position.set(0, -0.3, zStart - CHUNK_LENGTH / 2);
+  ground.position.set(0, -0.3, centerZ);
   ground.receiveShadow = true;
   group.add(ground);
 
@@ -191,57 +201,56 @@ function createChunk(zStart) {
   for (let lane = 0; lane < LANE_COUNT; lane++) {
     const x = LANE_X[lane];
     const railL = new THREE.Mesh(railGeo, railMat);
-    // Position relative to group, but z offset by zStart - CHUNK_LENGTH/2
-    railL.position.set(x - 0.55, 0.06, zStart - CHUNK_LENGTH / 2);
+    railL.position.set(x - 0.55, 0.06, centerZ);
     railL.castShadow = true;
     group.add(railL);
     const railR = new THREE.Mesh(railGeo, railMat);
-    railR.position.set(x + 0.55, 0.06, zStart - CHUNK_LENGTH / 2);
+    railR.position.set(x + 0.55, 0.06, centerZ);
     railR.castShadow = true;
     group.add(railR);
   }
 
-  // Sleepers
+  // Sleepers (railroad ties)
   const sleeperCount = Math.floor(CHUNK_LENGTH / 0.7);
   for (let i = 0; i < sleeperCount; i++) {
     const sleeper = new THREE.Mesh(sleeperGeo, sleeperMat);
-    sleeper.position.set(0, 0, zStart - (i * 0.7 + 0.35));
+    sleeper.position.set(0, 0, -(i * 0.7 + 0.35)); // local z: 0 to -CHUNK_LENGTH
     sleeper.receiveShadow = true;
     group.add(sleeper);
   }
 
   // Side walls
   const wallL = new THREE.Mesh(wallGeo, wallMat);
-  wallL.position.set(-TRACK_WIDTH / 2 - 0.2, 2.25, zStart - CHUNK_LENGTH / 2);
+  wallL.position.set(-TRACK_WIDTH / 2 - 0.2, 2.25, centerZ);
   wallL.receiveShadow = true;
   group.add(wallL);
 
   const wallR = new THREE.Mesh(wallGeo, wallMat);
-  wallR.position.set(TRACK_WIDTH / 2 + 0.2, 2.25, zStart - CHUNK_LENGTH / 2);
+  wallR.position.set(TRACK_WIDTH / 2 + 0.2, 2.25, centerZ);
   wallR.receiveShadow = true;
   group.add(wallR);
 
   // Pillars
   for (let i = 0; i < Math.floor(CHUNK_LENGTH / 5); i++) {
     const pL = new THREE.Mesh(pillarGeo, pillarMat);
-    pL.position.set(-TRACK_WIDTH / 2 - 0.55, 2.75, zStart - (i * 5 + 2.5));
+    pL.position.set(-TRACK_WIDTH / 2 - 0.55, 2.75, -(i * 5 + 2.5));
     pL.castShadow = true;
     group.add(pL);
     const pR = new THREE.Mesh(pillarGeo, pillarMat);
-    pR.position.set(TRACK_WIDTH / 2 + 0.55, 2.75, zStart - (i * 5 + 2.5));
+    pR.position.set(TRACK_WIDTH / 2 + 0.55, 2.75, -(i * 5 + 2.5));
     pR.castShadow = true;
     group.add(pR);
   }
 
   // Ceiling
   const ceiling = new THREE.Mesh(ceilingGeo, wallMat);
-  ceiling.position.set(0, 4.5, zStart - CHUNK_LENGTH / 2);
+  ceiling.position.set(0, 4.5, centerZ);
   ceiling.receiveShadow = true;
   group.add(ceiling);
 
   // Ceiling light strips
   for (let i = 0; i < 4; i++) {
-    const lightZ = zStart - (i * (CHUNK_LENGTH / 4) + CHUNK_LENGTH / 8);
+    const lightZ = -(i * (CHUNK_LENGTH / 4) + CHUNK_LENGTH / 8);
     const stripGeo = new THREE.BoxGeometry(TRACK_WIDTH, 0.06, 0.35);
     const stripMat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
@@ -268,21 +277,26 @@ function createChunk(zStart) {
 }
 
 function generateChunkContent(group, zStart, obstacles, coins) {
-  // Safe zone for first chunk (nearest to camera)
+  // Safe zone for first chunk (nearest to camera, zStart ~0)
+  // Local z from 0 to -CHUNK_LENGTH
   if (zStart > -5) {
-    for (let z = 0; z > -CHUNK_LENGTH; z -= COIN_SPACING) {
-      const coin = createCoin(0, 1.5, zStart + z);
+    for (let z = -5; z > -CHUNK_LENGTH; z -= COIN_SPACING) {
+      const coin = createCoin(0, 1.5, z); // local z
       group.add(coin.mesh);
       coins.push(coin);
     }
     return;
   }
 
+  // For non-safe chunks, generate 3 sections
+  // Local z ranges from 0 (near) to -CHUNK_LENGTH (far)
+  // Section centers: -5, -15, -25 (for CHUNK_LENGTH=30)
   const sections = 3;
   const sectionLen = CHUNK_LENGTH / sections;
 
   for (let s = 0; s < sections; s++) {
-    const sectionZ = zStart - (s * sectionLen + sectionLen / 2);
+    // Local z center of this section
+    const sectionZ = -(s * sectionLen + sectionLen / 2);
     const roll = Math.random();
 
     if (roll < 0.35) {
@@ -294,7 +308,8 @@ function generateChunkContent(group, zStart, obstacles, coins) {
 
       const coinLane = (lane + 1 + Math.floor(Math.random() * 2)) % LANE_COUNT;
       for (let z = 0; z < 3; z++) {
-        const coin = createCoin(LANE_X[coinLane], 1.5, sectionZ + z * COIN_SPACING);
+        const coinZ = sectionZ + z * COIN_SPACING;
+        const coin = createCoin(LANE_X[coinLane], 1.5, coinZ);
         group.add(coin.mesh);
         coins.push(coin);
       }
@@ -306,7 +321,8 @@ function generateChunkContent(group, zStart, obstacles, coins) {
       obstacles.push(obstacle);
 
       for (let z = 0; z < 3; z++) {
-        const coin = createCoin(LANE_X[lane], 1.5, sectionZ + z * COIN_SPACING);
+        const coinZ = sectionZ + z * COIN_SPACING;
+        const coin = createCoin(LANE_X[lane], 1.5, coinZ);
         group.add(coin.mesh);
         coins.push(coin);
       }
@@ -321,7 +337,8 @@ function generateChunkContent(group, zStart, obstacles, coins) {
       const coinLane2 = (lane + 2) % LANE_COUNT;
       for (let z = 0; z < 4; z++) {
         const cl = z % 2 === 0 ? coinLane1 : coinLane2;
-        const coin = createCoin(LANE_X[cl], 1.5, sectionZ + z * COIN_SPACING);
+        const coinZ = sectionZ + z * COIN_SPACING;
+        const coin = createCoin(LANE_X[cl], 1.5, coinZ);
         group.add(coin.mesh);
         coins.push(coin);
       }
@@ -329,7 +346,8 @@ function generateChunkContent(group, zStart, obstacles, coins) {
       // Coin arch
       for (let lane = 0; lane < LANE_COUNT; lane++) {
         for (let z = 0; z < 2; z++) {
-          const coin = createCoin(LANE_X[lane], 1.5, sectionZ + z * COIN_SPACING);
+          const coinZ = sectionZ + z * COIN_SPACING;
+          const coin = createCoin(LANE_X[lane], 1.5, coinZ);
           group.add(coin.mesh);
           coins.push(coin);
         }
@@ -340,20 +358,21 @@ function generateChunkContent(group, zStart, obstacles, coins) {
 
 // ============================================================
 // Obstacle Factory
+// All positions are LOCAL coordinates within a chunk group.
 // ============================================================
 function createBarrier(x, z) {
   const mesh = new THREE.Mesh(barrierGeo, obstacleBarrierMat);
   mesh.position.set(x, 0.6, z);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
-  return { mesh, type: "barrier", lane: getLaneFromX(x), z, w: 1.8, h: 1.2, d: 0.35, collected: false };
+  return { mesh, type: "barrier", w: 1.8, h: 1.2, d: 0.35, collected: false };
 }
 
 function createLowBarrier(x, z) {
   const mesh = new THREE.Mesh(lowBarrierGeo, obstacleLowMat);
   mesh.position.set(x, 2.4, z);
   mesh.castShadow = true;
-  return { mesh, type: "low", lane: getLaneFromX(x), z, w: 1.8, h: 0.6, d: 0.35, collected: false, elevated: true };
+  return { mesh, type: "low", w: 1.8, h: 0.6, d: 0.35, collected: false, elevated: true };
 }
 
 function createTrain(x, z) {
@@ -363,7 +382,7 @@ function createTrain(x, z) {
   mesh.position.set(x, 1.1, z);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
-  return { mesh, type: "train", lane: getLaneFromX(x), z, w: 1.8, h: 2.2, d: 8, collected: false };
+  return { mesh, type: "train", w: 1.8, h: 2.2, d: 8, collected: false };
 }
 
 function createCoin(x, y, z) {
@@ -372,12 +391,6 @@ function createCoin(x, y, z) {
   mesh.rotation.x = Math.PI / 2;
   mesh.castShadow = false;
   return { mesh, x, y, z, collected: false };
-}
-
-function getLaneFromX(x) {
-  if (x < -0.5) return 0;
-  if (x > 0.5) return 2;
-  return 1;
 }
 
 // ============================================================
@@ -407,7 +420,7 @@ function initChunks() {
   }
   chunks.length = 0;
 
-  // Chunks extend in -Z direction (ahead of camera)
+  // Chunks extend in -Z direction (ahead of camera at z=0)
   let z = 0;
   for (let i = 0; i < VISIBLE_CHUNKS; i++) {
     const chunk = createChunk(z);
@@ -432,6 +445,9 @@ function startGame() {
   state.sliding = false;
   state.slideTimer = 0;
   state.cameraShake = 0;
+
+  // Reset player position
+  playerHolder.position.set(0, 0, 0);
 
   initChunks();
   startLayer.classList.add("hidden");
@@ -464,7 +480,7 @@ function updatePlayer(dt) {
   state.distance += state.speed * dt;
   state.score += state.speed * dt * 0.5;
 
-  // Move chunks toward player (+Z direction, toward camera)
+  // Move chunks toward player (+Z direction = toward camera)
   const moveDist = state.speed * dt;
   for (const chunk of chunks) {
     chunk.group.position.z += moveDist;
@@ -473,6 +489,8 @@ function updatePlayer(dt) {
   // Recycle chunks that passed the camera
   for (let i = chunks.length - 1; i >= 0; i--) {
     const chunk = chunks[i];
+    // Chunk's near edge (local z=0) world position = group.position.z
+    // If near edge is past camera (z > 5), recycle
     if (chunk.group.position.z > 5) {
       scene.remove(chunk.group);
       chunks.splice(i, 1);
@@ -530,7 +548,7 @@ function updatePlayer(dt) {
   const laneOffset = targetX - currentX;
   camera.rotation.z = -laneOffset * 0.04;
 
-  // Slide camera
+  // Slide camera (lower view + tilt up)
   if (state.sliding) {
     camera.position.y = 2.2;
     camera.rotation.x = 0.2;
@@ -554,13 +572,11 @@ function updatePlayer(dt) {
     rightHand.rotation.x = -0.5;
   }
 
-  // Collisions
+  // Collisions & coin collection
   checkCollisions();
-
-  // Coin collection
   collectCoins();
 
-  // Animate coins
+  // Animate coins (spin + float)
   for (const chunk of chunks) {
     for (const coin of chunk.coins) {
       if (!coin.collected) {
@@ -575,7 +591,7 @@ function updatePlayer(dt) {
 
 function checkCollisions() {
   const playerX = playerHolder.position.x;
-  const playerZ = 0;
+  const playerZ = 0; // Player is always at world z=0
   const playerHeight = state.sliding ? 0.8 : 1.7;
   const playerYBottom = state.playerY;
   const playerYTop = playerYBottom + playerHeight;
@@ -584,7 +600,8 @@ function checkCollisions() {
     for (const obs of chunk.obstacles) {
       if (obs.collected) continue;
 
-      const worldZ = obs.mesh.position.z;
+      // World z = local z (mesh.position.z) + group offset (chunk.group.position.z)
+      const worldZ = obs.mesh.position.z + chunk.group.position.z;
       const dz = Math.abs(worldZ - playerZ);
 
       if (dz < obs.d / 2 + 0.4) {
@@ -614,7 +631,8 @@ function collectCoins() {
     for (const coin of chunk.coins) {
       if (coin.collected) continue;
 
-      const worldZ = coin.mesh.position.z;
+      // World z = local z + group offset
+      const worldZ = coin.mesh.position.z + chunk.group.position.z;
       const dz = Math.abs(worldZ - playerZ);
       const dx = Math.abs(coin.mesh.position.x - playerX);
       const dy = Math.abs(coin.mesh.position.y - playerYCenter);
@@ -708,7 +726,7 @@ function setupInput() {
     }
   });
 
-  // --- On-screen buttons (primary for iPad) ---
+  // --- On-screen buttons (primary for iPad/touch) ---
   function bindBtn(el, action) {
     if (!el) return;
     el.addEventListener("touchstart", (e) => {
@@ -763,7 +781,7 @@ function setupInput() {
 
     const SWIPE_THRESHOLD = 20;
 
-    // If very small movement = tap = jump
+    // Small movement = tap = jump
     if (absX < SWIPE_THRESHOLD && absY < SWIPE_THRESHOLD) {
       jump();
       return;
@@ -784,7 +802,7 @@ function setupInput() {
   startButton.addEventListener("click", startGame);
   restartButton.addEventListener("click", startGame);
 
-  // Prevent iOS zoom gestures
+  // Prevent iOS zoom / scroll gestures
   document.addEventListener("gesturestart", (e) => e.preventDefault());
   document.addEventListener("dblclick", (e) => e.preventDefault());
   document.addEventListener("gesturechange", (e) => e.preventDefault());
