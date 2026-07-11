@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
     <title>地铁跑酷</title>
-    <link rel="stylesheet" href="./src/styles.css?v=0.2.0" />
+    <link rel="stylesheet" href="./src/styles.css?v=0.2.1" />
     <script type="importmap">
       {
         "imports": {
@@ -53,7 +53,7 @@
           <h1 class="game-title">地铁跑酷</h1>
           <p class="game-subtitle">Subway Runner</p>
           <button class="start-button" id="startButton" type="button">开始</button>
-          <div class="version-badge" id="versionBadge">v0.2.0</div>
+          <div class="version-badge" id="versionBadge">v0.2.1</div>
           <div class="controls-hint">
             <div class="control-row"><span class="hint-icon">↔️</span><span>左右滑动 / 方向键换道</span></div>
             <div class="control-row"><span class="hint-icon">⬆️</span><span>上滑、点按屏幕或空格跳跃</span></div>
@@ -78,10 +78,12 @@
         </div>
       </div>
 
-      <!-- On-screen touch control buttons -->
-      <div class="touch-controls">
+      <!-- On-screen touch control buttons: 手柄式左右分区，贴合横屏握持时拇指的位置 -->
+      <div class="touch-pad touch-pad-left">
         <button class="touch-btn touch-btn-left" id="btnLeft" type="button" aria-label="左移">◀</button>
         <button class="touch-btn touch-btn-right" id="btnRight" type="button" aria-label="右移">▶</button>
+      </div>
+      <div class="touch-pad touch-pad-right">
         <button class="touch-btn touch-btn-jump" id="btnJump" type="button" aria-label="跳跃">▲</button>
         <button class="touch-btn touch-btn-slide" id="btnSlide" type="button" aria-label="滑铲">▼</button>
       </div>
@@ -93,6 +95,6 @@
       <div class="hit-flash" id="hitFlash"></div>
     </main>
 
-    <script type="module" src="./src/main.js?v=0.2.0"></script>
+    <script type="module" src="./src/main.js?v=0.2.1"></script>
   </body>
 </html>

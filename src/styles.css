@@ -391,23 +391,30 @@ html, body {
 
 /* ========== On-screen touch buttons ========== */
 
-.touch-controls {
+/* 手柄式布局：横屏握持时两只拇指落在屏幕左右下角，
+   按钮簇贴着两侧边缘、抬离底边，拇指不用挪位置就能按到 */
+.touch-pad {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  bottom: max(12%, calc(env(safe-area-inset-bottom, 0px) + 48px));
   display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  padding: 20px 24px;
-  padding-bottom: max(24px, env(safe-area-inset-bottom, 24px));
+  align-items: center;
+  gap: 14px;
   z-index: 15;
   pointer-events: none;
 }
 
+.touch-pad-left {
+  left: max(20px, env(safe-area-inset-left, 20px));
+}
+
+.touch-pad-right {
+  right: max(20px, env(safe-area-inset-right, 20px));
+  flex-direction: column;
+}
+
 .touch-btn {
-  width: 64px;
-  height: 64px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
   border: 2px solid var(--glass-border);
   background: var(--glass);
@@ -433,22 +440,12 @@ html, body {
   border-color: var(--accent);
 }
 
-.touch-btn-left {
-  margin-right: auto;
-}
-
-.touch-btn-right {
-  margin-left: 8px;
-}
-
 .touch-btn-jump {
-  margin-left: auto;
   background: rgba(0, 212, 255, 0.12);
   border-color: rgba(0, 212, 255, 0.3);
 }
 
 .touch-btn-slide {
-  margin-left: 8px;
   background: rgba(255, 107, 53, 0.12);
   border-color: rgba(255, 107, 53, 0.3);
 }
@@ -492,9 +489,9 @@ html, body {
     padding: 32px 32px;
   }
   .touch-btn {
-    width: 56px;
-    height: 56px;
-    font-size: 24px;
+    width: 64px;
+    height: 64px;
+    font-size: 26px;
   }
 }
 
@@ -506,12 +503,17 @@ html, body {
     font-size: 16px;
   }
   .touch-btn {
-    width: 52px;
-    height: 52px;
-    font-size: 22px;
+    width: 58px;
+    height: 58px;
+    font-size: 24px;
   }
-  .touch-controls {
-    padding: 16px 16px;
-    padding-bottom: max(20px, env(safe-area-inset-bottom, 20px));
+  .touch-pad {
+    gap: 10px;
+  }
+  .touch-pad-left {
+    left: max(12px, env(safe-area-inset-left, 12px));
+  }
+  .touch-pad-right {
+    right: max(12px, env(safe-area-inset-right, 12px));
   }
 }
