@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { APP_VERSION } from "./version.js?v=0.1.1";
+import { APP_VERSION } from "./version.js?v=0.1.2";
 
 // ============================================================
 // DOM
@@ -21,6 +21,12 @@ const finalCoins = document.querySelector("#finalCoins");
 const finalScore = document.querySelector("#finalScore");
 const bestScore = document.querySelector("#bestScore");
 
+// On-screen touch buttons
+const btnLeft = document.querySelector("#btnLeft");
+const btnRight = document.querySelector("#btnRight");
+const btnJump = document.querySelector("#btnJump");
+const btnSlide = document.querySelector("#btnSlide");
+
 versionBadge.textContent = `v${APP_VERSION}`;
 
 // ============================================================
@@ -28,9 +34,10 @@ versionBadge.textContent = `v${APP_VERSION}`;
 // ============================================================
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a2540);
-scene.fog = new THREE.Fog(0x1a2540, 50, 130);
+scene.fog = new THREE.Fog(0x1a2540, 50, 140);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 250);
+// Camera at z=0, looking toward -Z (default). Track extends in -Z direction.
 camera.position.set(0, 3.8, 0);
 camera.rotation.order = "YXZ";
 camera.rotation.x = -0.08;
@@ -45,7 +52,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.2;
 
 // ============================================================
-// Lighting — brighter
+// Lighting
 // ============================================================
 const hemi = new THREE.HemisphereLight(0xbbddff, 0x4a3a2a, 1.2);
 scene.add(hemi);
@@ -64,7 +71,7 @@ sun.shadow.bias = -0.0008;
 scene.add(sun);
 scene.add(sun.target);
 
-// Extra ambient point light near camera so nearby objects are visible
+// Camera-follow point light
 const camLight = new THREE.PointLight(0xffffff, 1.5, 25, 1.5);
 camLight.position.set(0, 3.5, 0);
 scene.add(camLight);
@@ -111,7 +118,7 @@ const state = {
 bestScore.textContent = state.best;
 
 // ============================================================
-// Materials — brighter colors
+// Materials
 // ============================================================
 const railMat = new THREE.MeshStandardMaterial({ color: 0xb0b0b8, metalness: 0.8, roughness: 0.25 });
 const sleeperMat = new THREE.MeshStandardMaterial({ color: 0x6a5038, roughness: 0.85 });
@@ -151,7 +158,6 @@ const groundGeo = new THREE.BoxGeometry(50, 0.3, CHUNK_LENGTH);
 const wallGeo = new THREE.BoxGeometry(0.4, 4.5, CHUNK_LENGTH);
 const pillarGeo = new THREE.BoxGeometry(0.5, 5.5, 0.5);
 const ceilingGeo = new THREE.BoxGeometry(TRACK_WIDTH + 4, 0.25, CHUNK_LENGTH);
-// Bigger coins: radius 0.42, height 0.08
 const coinGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.08, 20);
 const barrierGeo = new THREE.BoxGeometry(1.8, 1.2, 0.35);
 const lowBarrierGeo = new THREE.BoxGeometry(1.8, 0.6, 0.35);
@@ -159,6 +165,8 @@ const trainGeo = new THREE.BoxGeometry(1.8, 2.2, 8);
 
 // ============================================================
 // Chunk System
+// Track extends in -Z direction (ahead of camera which looks -Z)
+// Chunks move toward +Z (toward camera) to simulate running forward
 // ============================================================
 const chunks = [];
 
@@ -169,25 +177,26 @@ function createChunk(zStart) {
 
   // Gravel bed
   const gravel = new THREE.Mesh(gravelGeo, gravelMat);
-  gravel.position.set(0, -0.1, CHUNK_LENGTH / 2);
+  gravel.position.set(0, -0.1, zStart - CHUNK_LENGTH / 2);
   gravel.receiveShadow = true;
   group.add(gravel);
 
   // Ground
   const ground = new THREE.Mesh(groundGeo, groundMat);
-  ground.position.set(0, -0.3, CHUNK_LENGTH / 2);
+  ground.position.set(0, -0.3, zStart - CHUNK_LENGTH / 2);
   ground.receiveShadow = true;
   group.add(ground);
 
-  // Rails
+  // Rails - 3 lanes
   for (let lane = 0; lane < LANE_COUNT; lane++) {
     const x = LANE_X[lane];
     const railL = new THREE.Mesh(railGeo, railMat);
-    railL.position.set(x - 0.55, 0.06, CHUNK_LENGTH / 2);
+    // Position relative to group, but z offset by zStart - CHUNK_LENGTH/2
+    railL.position.set(x - 0.55, 0.06, zStart - CHUNK_LENGTH / 2);
     railL.castShadow = true;
     group.add(railL);
     const railR = new THREE.Mesh(railGeo, railMat);
-    railR.position.set(x + 0.55, 0.06, CHUNK_LENGTH / 2);
+    railR.position.set(x + 0.55, 0.06, zStart - CHUNK_LENGTH / 2);
     railR.castShadow = true;
     group.add(railR);
   }
@@ -196,43 +205,43 @@ function createChunk(zStart) {
   const sleeperCount = Math.floor(CHUNK_LENGTH / 0.7);
   for (let i = 0; i < sleeperCount; i++) {
     const sleeper = new THREE.Mesh(sleeperGeo, sleeperMat);
-    sleeper.position.set(0, 0, i * 0.7 + 0.35);
+    sleeper.position.set(0, 0, zStart - (i * 0.7 + 0.35));
     sleeper.receiveShadow = true;
     group.add(sleeper);
   }
 
   // Side walls
   const wallL = new THREE.Mesh(wallGeo, wallMat);
-  wallL.position.set(-TRACK_WIDTH / 2 - 0.2, 2.25, CHUNK_LENGTH / 2);
+  wallL.position.set(-TRACK_WIDTH / 2 - 0.2, 2.25, zStart - CHUNK_LENGTH / 2);
   wallL.receiveShadow = true;
   group.add(wallL);
 
   const wallR = new THREE.Mesh(wallGeo, wallMat);
-  wallR.position.set(TRACK_WIDTH / 2 + 0.2, 2.25, CHUNK_LENGTH / 2);
+  wallR.position.set(TRACK_WIDTH / 2 + 0.2, 2.25, zStart - CHUNK_LENGTH / 2);
   wallR.receiveShadow = true;
   group.add(wallR);
 
   // Pillars
   for (let i = 0; i < Math.floor(CHUNK_LENGTH / 5); i++) {
     const pL = new THREE.Mesh(pillarGeo, pillarMat);
-    pL.position.set(-TRACK_WIDTH / 2 - 0.55, 2.75, i * 5 + 2.5);
+    pL.position.set(-TRACK_WIDTH / 2 - 0.55, 2.75, zStart - (i * 5 + 2.5));
     pL.castShadow = true;
     group.add(pL);
     const pR = new THREE.Mesh(pillarGeo, pillarMat);
-    pR.position.set(TRACK_WIDTH / 2 + 0.55, 2.75, i * 5 + 2.5);
+    pR.position.set(TRACK_WIDTH / 2 + 0.55, 2.75, zStart - (i * 5 + 2.5));
     pR.castShadow = true;
     group.add(pR);
   }
 
   // Ceiling
   const ceiling = new THREE.Mesh(ceilingGeo, wallMat);
-  ceiling.position.set(0, 4.5, CHUNK_LENGTH / 2);
+  ceiling.position.set(0, 4.5, zStart - CHUNK_LENGTH / 2);
   ceiling.receiveShadow = true;
   group.add(ceiling);
 
-  // Ceiling light strips — bright emissive
+  // Ceiling light strips
   for (let i = 0; i < 4; i++) {
-    const lightZ = i * (CHUNK_LENGTH / 4) + CHUNK_LENGTH / 8;
+    const lightZ = zStart - (i * (CHUNK_LENGTH / 4) + CHUNK_LENGTH / 8);
     const stripGeo = new THREE.BoxGeometry(TRACK_WIDTH, 0.06, 0.35);
     const stripMat = new THREE.MeshStandardMaterial({
       color: 0xffffff,
@@ -243,7 +252,6 @@ function createChunk(zStart) {
     strip.position.set(0, 4.35, lightZ);
     group.add(strip);
 
-    // Add actual point light for first strip in each chunk (for real illumination)
     if (i < 2) {
       const pl = new THREE.PointLight(0xccddff, 0.6, 12, 1.5);
       pl.position.set(0, 4.0, lightZ);
@@ -260,10 +268,9 @@ function createChunk(zStart) {
 }
 
 function generateChunkContent(group, zStart, obstacles, coins) {
-  // Safe zone for first chunk
-  if (zStart < 5) {
-    // Coins in center lane, lower height for visibility
-    for (let z = 5; z < CHUNK_LENGTH; z += COIN_SPACING) {
+  // Safe zone for first chunk (nearest to camera)
+  if (zStart > -5) {
+    for (let z = 0; z > -CHUNK_LENGTH; z -= COIN_SPACING) {
       const coin = createCoin(0, 1.5, zStart + z);
       group.add(coin.mesh);
       coins.push(coin);
@@ -275,7 +282,7 @@ function generateChunkContent(group, zStart, obstacles, coins) {
   const sectionLen = CHUNK_LENGTH / sections;
 
   for (let s = 0; s < sections; s++) {
-    const sectionZ = zStart + s * sectionLen + sectionLen / 2;
+    const sectionZ = zStart - (s * sectionLen + sectionLen / 2);
     const roll = Math.random();
 
     if (roll < 0.35) {
@@ -287,7 +294,7 @@ function generateChunkContent(group, zStart, obstacles, coins) {
 
       const coinLane = (lane + 1 + Math.floor(Math.random() * 2)) % LANE_COUNT;
       for (let z = 0; z < 3; z++) {
-        const coin = createCoin(LANE_X[coinLane], 1.5, sectionZ - sectionLen / 2 + z * COIN_SPACING);
+        const coin = createCoin(LANE_X[coinLane], 1.5, sectionZ + z * COIN_SPACING);
         group.add(coin.mesh);
         coins.push(coin);
       }
@@ -299,7 +306,7 @@ function generateChunkContent(group, zStart, obstacles, coins) {
       obstacles.push(obstacle);
 
       for (let z = 0; z < 3; z++) {
-        const coin = createCoin(LANE_X[lane], 1.5, sectionZ - sectionLen / 2 + z * COIN_SPACING);
+        const coin = createCoin(LANE_X[lane], 1.5, sectionZ + z * COIN_SPACING);
         group.add(coin.mesh);
         coins.push(coin);
       }
@@ -314,7 +321,7 @@ function generateChunkContent(group, zStart, obstacles, coins) {
       const coinLane2 = (lane + 2) % LANE_COUNT;
       for (let z = 0; z < 4; z++) {
         const cl = z % 2 === 0 ? coinLane1 : coinLane2;
-        const coin = createCoin(LANE_X[cl], 1.5, sectionZ - sectionLen / 2 + z * COIN_SPACING);
+        const coin = createCoin(LANE_X[cl], 1.5, sectionZ + z * COIN_SPACING);
         group.add(coin.mesh);
         coins.push(coin);
       }
@@ -322,7 +329,7 @@ function generateChunkContent(group, zStart, obstacles, coins) {
       // Coin arch
       for (let lane = 0; lane < LANE_COUNT; lane++) {
         for (let z = 0; z < 2; z++) {
-          const coin = createCoin(LANE_X[lane], 1.5, sectionZ - 1 + z * COIN_SPACING);
+          const coin = createCoin(LANE_X[lane], 1.5, sectionZ + z * COIN_SPACING);
           group.add(coin.mesh);
           coins.push(coin);
         }
@@ -400,11 +407,12 @@ function initChunks() {
   }
   chunks.length = 0;
 
+  // Chunks extend in -Z direction (ahead of camera)
   let z = 0;
   for (let i = 0; i < VISIBLE_CHUNKS; i++) {
     const chunk = createChunk(z);
     chunks.push(chunk);
-    z += CHUNK_LENGTH;
+    z -= CHUNK_LENGTH;
   }
 }
 
@@ -456,23 +464,24 @@ function updatePlayer(dt) {
   state.distance += state.speed * dt;
   state.score += state.speed * dt * 0.5;
 
-  // Move chunks toward player
+  // Move chunks toward player (+Z direction, toward camera)
   const moveDist = state.speed * dt;
   for (const chunk of chunks) {
-    chunk.group.position.z -= moveDist;
+    chunk.group.position.z += moveDist;
   }
 
-  // Recycle chunks
+  // Recycle chunks that passed the camera
   for (let i = chunks.length - 1; i >= 0; i--) {
     const chunk = chunks[i];
-    if (chunk.group.position.z + CHUNK_LENGTH < -5) {
+    if (chunk.group.position.z > 5) {
       scene.remove(chunk.group);
       chunks.splice(i, 1);
-      let maxZ = -Infinity;
+      // Find the furthest chunk (most negative z) and create new one beyond it
+      let minZ = Infinity;
       for (const c of chunks) {
-        if (c.group.position.z > maxZ) maxZ = c.group.position.z;
+        if (c.group.position.z < minZ) minZ = c.group.position.z;
       }
-      const newChunk = createChunk(maxZ + CHUNK_LENGTH);
+      const newChunk = createChunk(minZ - CHUNK_LENGTH);
       chunks.push(newChunk);
     }
   }
@@ -575,7 +584,7 @@ function checkCollisions() {
     for (const obs of chunk.obstacles) {
       if (obs.collected) continue;
 
-      const worldZ = obs.mesh.position.z + chunk.group.position.z;
+      const worldZ = obs.mesh.position.z;
       const dz = Math.abs(worldZ - playerZ);
 
       if (dz < obs.d / 2 + 0.4) {
@@ -599,14 +608,13 @@ function checkCollisions() {
 function collectCoins() {
   const playerX = playerHolder.position.x;
   const playerZ = 0;
-  // Coin is at y=1.5, player center is at camera.y - 1.5 roughly
   const playerYCenter = state.playerY + 1.5;
 
   for (const chunk of chunks) {
     for (const coin of chunk.coins) {
       if (coin.collected) continue;
 
-      const worldZ = coin.mesh.position.z + chunk.group.position.z;
+      const worldZ = coin.mesh.position.z;
       const dz = Math.abs(worldZ - playerZ);
       const dx = Math.abs(coin.mesh.position.x - playerX);
       const dy = Math.abs(coin.mesh.position.y - playerYCenter);
@@ -664,10 +672,10 @@ function updateHUD() {
 }
 
 // ============================================================
-// Input
+// Input - Touch-first, keyboard as secondary
 // ============================================================
 function setupInput() {
-  // Keyboard
+  // --- Keyboard (secondary, for desktop testing) ---
   window.addEventListener("keydown", (e) => {
     if (e.repeat) return;
     switch (e.code) {
@@ -700,7 +708,27 @@ function setupInput() {
     }
   });
 
-  // Touch — much more forgiving for iPad
+  // --- On-screen buttons (primary for iPad) ---
+  function bindBtn(el, action) {
+    if (!el) return;
+    el.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      action();
+    }, { passive: false });
+    el.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      action();
+    });
+  }
+
+  bindBtn(btnLeft, moveLeft);
+  bindBtn(btnRight, moveRight);
+  bindBtn(btnJump, jump);
+  bindBtn(btnSlide, slide);
+
+  // --- Swipe gestures (full screen) ---
   let touchStartX = 0;
   let touchStartY = 0;
   let touchStartTime = 0;
@@ -715,7 +743,6 @@ function setupInput() {
     }
   }, { passive: true });
 
-  // Prevent default on touchmove so iPad doesn't scroll/zoom
   touchZone.addEventListener("touchmove", (e) => {
     if (touchActive) {
       e.preventDefault();
@@ -730,45 +757,37 @@ function setupInput() {
     const touch = e.changedTouches[0];
     const dx = touch.clientX - touchStartX;
     const dy = touch.clientY - touchStartY;
-    const dt = Date.now() - touchStartTime;
 
     const absX = Math.abs(dx);
     const absY = Math.abs(dy);
 
-    // Lower threshold for swipes, higher timeout
-    const SWIPE_THRESHOLD = 25; // px — easy to trigger
-    const TAP_TIMEOUT = 800; // ms — generous
+    const SWIPE_THRESHOLD = 20;
 
+    // If very small movement = tap = jump
     if (absX < SWIPE_THRESHOLD && absY < SWIPE_THRESHOLD) {
-      // Tap = jump
       jump();
       return;
     }
 
-    // If movement too slow, still try to register
-    if (dt > TAP_TIMEOUT && absX < 15 && absY < 15) {
-      jump();
-      return;
-    }
-
-    // Horizontal takes priority only if clearly more horizontal
+    // Horizontal swipe
     if (absX > absY * 1.2) {
       if (dx > 0) moveRight();
       else moveLeft();
     } else {
-      // Vertical or diagonal
+      // Vertical swipe
       if (dy > 0) slide();
       else jump();
     }
   }, { passive: true });
 
-  // Buttons
+  // --- Start / Restart buttons ---
   startButton.addEventListener("click", startGame);
   restartButton.addEventListener("click", startGame);
 
-  // Prevent double-tap zoom on iOS
+  // Prevent iOS zoom gestures
   document.addEventListener("gesturestart", (e) => e.preventDefault());
   document.addEventListener("dblclick", (e) => e.preventDefault());
+  document.addEventListener("gesturechange", (e) => e.preventDefault());
 }
 
 // ============================================================
@@ -782,6 +801,7 @@ function resize() {
 }
 
 window.addEventListener("resize", resize);
+window.addEventListener("orientationchange", () => setTimeout(resize, 100));
 
 // ============================================================
 // Animation Loop

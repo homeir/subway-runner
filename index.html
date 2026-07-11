@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
     <title>地铁跑酷</title>
-    <link rel="stylesheet" href="./src/styles.css?v=0.1.1" />
+    <link rel="stylesheet" href="./src/styles.css?v=0.1.2" />
     <script type="importmap">
       {
         "imports": {
@@ -53,11 +53,12 @@
           <h1 class="game-title">地铁跑酷</h1>
           <p class="game-subtitle">Subway Runner</p>
           <button class="start-button" id="startButton" type="button">开始</button>
-          <div class="version-badge" id="versionBadge">v0.1.1</div>
+          <div class="version-badge" id="versionBadge">v0.1.2</div>
           <div class="controls-hint">
-            <div class="control-row"><kbd>A</kbd><kbd>D</kbd> <span>左右移动</span></div>
-            <div class="control-row"><kbd>W</kbd> 或 <kbd>Space</kbd> <span>跳跃</span></div>
-            <div class="control-row"><kbd>S</kbd> <span>滑铲</span></div>
+            <div class="control-row"><span class="hint-icon">⬅️</span><span>向左滑动或左下角按钮</span></div>
+            <div class="control-row"><span class="hint-icon">➡️</span><span>向右滑动或右下角按钮</span></div>
+            <div class="control-row"><span class="hint-icon">⬆️</span><span>向上滑动或点击屏幕跳跃</span></div>
+            <div class="control-row"><span class="hint-icon">⬇️</span><span>向下滑动滑铲</span></div>
           </div>
         </div>
       </div>
@@ -76,10 +77,18 @@
         </div>
       </div>
 
-      <!-- Touch controls for mobile -->
+      <!-- On-screen touch control buttons -->
+      <div class="touch-controls">
+        <button class="touch-btn touch-btn-left" id="btnLeft" type="button" aria-label="左移">◀</button>
+        <button class="touch-btn touch-btn-right" id="btnRight" type="button" aria-label="右移">▶</button>
+        <button class="touch-btn touch-btn-jump" id="btnJump" type="button" aria-label="跳跃">▲</button>
+        <button class="touch-btn touch-btn-slide" id="btnSlide" type="button" aria-label="滑铲">▼</button>
+      </div>
+
+      <!-- Touch zone for swipe gestures (full screen) -->
       <div class="touch-zone" id="touchZone"></div>
     </main>
 
-    <script type="module" src="./src/main.js?v=0.1.1"></script>
+    <script type="module" src="./src/main.js?v=0.1.2"></script>
   </body>
 </html>

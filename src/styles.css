@@ -18,6 +18,7 @@
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
   user-select: none;
+  -webkit-user-select: none;
 }
 
 html, body {
@@ -27,6 +28,8 @@ html, body {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font);
+  overscroll-behavior: none;
+  touch-action: none;
 }
 
 #game {
@@ -241,21 +244,15 @@ html, body {
 .control-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-size: 13px;
   opacity: 0.7;
 }
 
-kbd {
-  display: inline-block;
-  min-width: 28px;
-  padding: 3px 8px;
-  font-family: monospace;
-  font-size: 12px;
+.hint-icon {
+  font-size: 18px;
+  min-width: 24px;
   text-align: center;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid var(--glass-border);
-  border-radius: 6px;
 }
 
 /* ========== Game over screen ========== */
@@ -336,7 +333,7 @@ kbd {
   color: var(--gold);
 }
 
-/* ========== Touch zone ========== */
+/* ========== Touch zone (swipe area) ========== */
 
 .touch-zone {
   position: absolute;
@@ -345,8 +342,68 @@ kbd {
   touch-action: none;
 }
 
-.touch-zone.active {
+/* ========== On-screen touch buttons ========== */
+
+.touch-controls {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 20px 24px;
+  padding-bottom: max(24px, env(safe-area-inset-bottom, 24px));
+  z-index: 15;
+  pointer-events: none;
+}
+
+.touch-btn {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 2px solid var(--glass-border);
+  background: var(--glass);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  color: var(--fg);
+  font-size: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
   pointer-events: auto;
+  touch-action: none;
+  transition: transform 0.1s ease, background 0.1s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.touch-btn:active {
+  transform: scale(0.88);
+  background: rgba(0, 212, 255, 0.3);
+  border-color: var(--accent);
+}
+
+.touch-btn-left {
+  margin-right: auto;
+}
+
+.touch-btn-right {
+  margin-left: 8px;
+}
+
+.touch-btn-jump {
+  margin-left: auto;
+  background: rgba(0, 212, 255, 0.12);
+  border-color: rgba(0, 212, 255, 0.3);
+}
+
+.touch-btn-slide {
+  margin-left: 8px;
+  background: rgba(255, 107, 53, 0.12);
+  border-color: rgba(255, 107, 53, 0.3);
 }
 
 /* ========== Animations ========== */
@@ -386,5 +443,28 @@ kbd {
   }
   .gameover-panel {
     padding: 32px 32px;
+  }
+  .touch-btn {
+    width: 56px;
+    height: 56px;
+    font-size: 24px;
+  }
+}
+
+@media (max-width: 480px) {
+  .score-display {
+    gap: 10px;
+  }
+  .score-value {
+    font-size: 16px;
+  }
+  .touch-btn {
+    width: 52px;
+    height: 52px;
+    font-size: 22px;
+  }
+  .touch-controls {
+    padding: 16px 16px;
+    padding-bottom: max(20px, env(safe-area-inset-bottom, 20px));
   }
 }
