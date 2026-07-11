@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { APP_VERSION } from "./version.js?v=0.3.0";
+import { APP_VERSION } from "./version.js?v=0.4.0";
 
 // ============================================================
 // DOM
@@ -31,21 +31,20 @@ versionBadge.textContent = `v${APP_VERSION}`;
 
 // ============================================================
 // Scene / Camera / Renderer
+// 白天的城市场景，第三人称视角（相机在小人身后上方）
 // ============================================================
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x141c33);
-scene.fog = new THREE.Fog(0x141c33, 45, 130);
+scene.background = new THREE.Color(0x8ec9f0);
+scene.fog = new THREE.Fog(0xbfd9ee, 50, 150);
 
-// 第一人称：相机就是玩家的眼睛，人眼高度约 1.65 米
-const CAMERA_HEIGHT = 1.65;
-const CAMERA_SLIDE_HEIGHT = 0.85;
-const BASE_FOV = 75;
+const BASE_FOV = 68;
+const CAMERA_HEIGHT = 3.0; // 相机在小人身后上方
+const PLAYER_Z = -4.3; // 小人在相机前方 4.3 米处（所有碰撞都以这里为准）
 
-const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.1, 250);
-// Camera at z=0, looking toward -Z (Three.js default). Track extends in -Z.
+const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.1, 300);
 camera.position.set(0, CAMERA_HEIGHT, 0);
 camera.rotation.order = "YXZ";
-camera.rotation.x = -0.05;
+camera.rotation.x = -0.33;
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -54,38 +53,27 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.15;
+renderer.toneMappingExposure = 1.1;
 
 // ============================================================
-// Lighting
-// 用少量灯光照亮整个隧道（chunk 里不再放点光源，性能更好）
+// Lighting（白天阳光）
 // ============================================================
-const hemi = new THREE.HemisphereLight(0xaac4ff, 0x3a3448, 1.35);
+const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x9a8f78, 1.15);
 scene.add(hemi);
 
-const sun = new THREE.DirectionalLight(0xfff0dd, 1.6);
-sun.position.set(6, 18, -6);
+const sun = new THREE.DirectionalLight(0xfff2dd, 2.0);
+sun.position.set(10, 24, 8);
 sun.castShadow = true;
-sun.shadow.mapSize.set(1024, 1024);
-sun.shadow.camera.left = -12;
-sun.shadow.camera.right = 12;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -16;
+sun.shadow.camera.right = 16;
 sun.shadow.camera.top = 20;
-sun.shadow.camera.bottom = -5;
+sun.shadow.camera.bottom = -16;
 sun.shadow.camera.near = 3;
-sun.shadow.camera.far = 55;
+sun.shadow.camera.far = 70;
 sun.shadow.bias = -0.0008;
 scene.add(sun);
 scene.add(sun.target);
-
-// 从隧道深处打来的补光，让远处不是死黑一片
-const fill = new THREE.DirectionalLight(0x88aaff, 0.5);
-fill.position.set(-4, 6, -30);
-scene.add(fill);
-
-// 跟随玩家的暖色点光
-const camLight = new THREE.PointLight(0xffe8cc, 1.2, 22, 1.6);
-camLight.position.set(0, 2.5, -1);
-scene.add(camLight);
 
 // ============================================================
 // Constants
@@ -105,14 +93,16 @@ const JUMP_BUFFER_TIME = 0.15; // 落地前一瞬间按跳也算数
 const SLIDE_DURATION = 0.7;
 const LANE_LERP_SPEED = 12;
 const CHUNK_LENGTH = 30;
-const VISIBLE_CHUNKS = 6; // 覆盖 ~150m，远端始终藏在雾后（fog far=130）
+const VISIBLE_CHUNKS = 6;
 const COIN_SPACING = 3.5;
 const COIN_VALUE = 10;
-const COIN_Y = 0.9; // 腰部高度，不挡视线
-const TUNNEL_HEIGHT = 4.6;
-// 隧道比车身宽，车顶两侧留出落差，才看得出"人在车顶上"
-const WALL_X = TRACK_WIDTH / 2 + 1.9;
+const COIN_Y = 0.9; // 金币离脚下表面的高度
 const BEST_SCORE_KEY = "subway-runner.best";
+
+// 列车：可以从尾部的斜坡跑上车顶
+const TRAIN_LEN = 13;
+const ROOF_H = 2.6; // 车顶高度
+const RAMP_LEN = 4.2; // 斜坡水平长度
 
 // 玩家碰撞体：站立高 1.7 米，滑铲时只有 0.8 米
 const PLAYER_STAND_HEIGHT = 1.7;
@@ -121,6 +111,7 @@ const PLAYER_SLIDE_HEIGHT = 0.8;
 // ============================================================
 // Game State
 // phase: menu(开始界面) -> running(游戏中) -> dying(撞击瞬间) -> over(结算)
+// playerY = 小人脚下离地面(y=0)的高度，站在车顶上时是 ROOF_H
 // ============================================================
 const state = {
   phase: "menu",
@@ -132,6 +123,7 @@ const state = {
   playerY: 0,
   playerVelY: 0,
   jumping: false,
+  falling: false,
   sliding: false,
   slideTimer: 0,
   jumpBuffer: 0,
@@ -144,129 +136,108 @@ bestScore.textContent = state.best;
 
 // ============================================================
 // Materials（全部共享，回收 chunk 时不会泄漏内存）
-//
-// 世界坐标约定：玩家在地铁车顶上跑，【车顶表面 = y=0】。
-// 车厢挂在下面（y<0），隧道地面在更下面（y≈-3.4）。
-// 这样跳跃/碰撞/金币的物理逻辑完全不用改。
 // ============================================================
-const roofMat = new THREE.MeshStandardMaterial({ color: 0x9aa4b8, metalness: 0.45, roughness: 0.5 });
-const roofEdgeMat = new THREE.MeshStandardMaterial({ color: 0x6b7488, metalness: 0.5, roughness: 0.45 });
-const seamMat = new THREE.MeshStandardMaterial({ color: 0x181e2c, roughness: 0.9 });
-const laneMarkMat = new THREE.MeshStandardMaterial({ color: 0x6b7488, metalness: 0.4, roughness: 0.6 });
-const bodyMat = new THREE.MeshStandardMaterial({ color: 0x2e5f8a, metalness: 0.3, roughness: 0.5 });
-const windowMat = new THREE.MeshStandardMaterial({
-  color: 0xfff1c4,
-  emissive: 0xffe1a0, // 车窗透出的暖光
-  emissiveIntensity: 0.9,
-});
-const liveryMat = new THREE.MeshStandardMaterial({ color: 0xff5a3c, roughness: 0.5 });
-const groundMat = new THREE.MeshStandardMaterial({ color: 0x333a52, roughness: 0.9 });
-const wallMat = new THREE.MeshStandardMaterial({ color: 0x4a5470, roughness: 0.75 });
-const wallTrimMat = new THREE.MeshStandardMaterial({ color: 0x5c6a8c, roughness: 0.6, metalness: 0.2 });
-const ceilingMat = new THREE.MeshStandardMaterial({
-  color: 0x46506e,
-  roughness: 0.8,
-  emissive: 0x1a2238, // 底面朝下照不到光，给点自发光避免死黑
-  emissiveIntensity: 0.7,
-});
-const pillarMat = new THREE.MeshStandardMaterial({ color: 0x565e7c, metalness: 0.3, roughness: 0.6 });
-const stripMat = new THREE.MeshStandardMaterial({
-  color: 0xfff4e0,
-  emissive: 0xffe0b0,
-  emissiveIntensity: 1.0,
-});
+// 铁轨路基
+const ballastMat = new THREE.MeshStandardMaterial({ color: 0xb08a5e, roughness: 0.95 });
+const sleeperMat = new THREE.MeshStandardMaterial({ color: 0x7a5a38, roughness: 0.85 });
+const railMat = new THREE.MeshStandardMaterial({ color: 0xc8ccd4, metalness: 0.85, roughness: 0.3 });
+const sideWallMat = new THREE.MeshStandardMaterial({ color: 0xcfd4da, roughness: 0.8 });
+const sideGroundMat = new THREE.MeshStandardMaterial({ color: 0x9aa792, roughness: 0.95 });
+const poleMat = new THREE.MeshStandardMaterial({ color: 0x3a3f4a, metalness: 0.4, roughness: 0.5 });
+
+// 楼房（随机配色）
+const BUILDING_COLORS = [0xc75b45, 0xd9a066, 0x8fb2c9, 0xb0654f, 0xd8c9a3, 0x7d9a6a];
+const buildingMats = BUILDING_COLORS.map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 }));
+const buildingWinMat = new THREE.MeshStandardMaterial({ color: 0x33475e, roughness: 0.4, metalness: 0.3 });
+
+// 列车配色（车身 + 车顶 + 前脸警示条）
+const TRAIN_LIVERIES = [
+  { body: 0xc9ced6, roof: 0xe8ebef }, // 银灰
+  { body: 0x6fae72, roof: 0xdfe8df }, // 绿
+  { body: 0xc94f42, roof: 0xeadfdd }, // 红
+  { body: 0x4f7fc9, roof: 0xdde4ee }, // 蓝
+];
+const trainBodyMats = TRAIN_LIVERIES.map((l) => new THREE.MeshStandardMaterial({ color: l.body, metalness: 0.25, roughness: 0.45 }));
+const trainRoofMats = TRAIN_LIVERIES.map((l) => new THREE.MeshStandardMaterial({ color: l.roof, metalness: 0.2, roughness: 0.5 }));
+const trainGlassMat = new THREE.MeshStandardMaterial({ color: 0x263646, metalness: 0.5, roughness: 0.25 });
+const trainUnderMat = new THREE.MeshStandardMaterial({ color: 0x2c3038, roughness: 0.8 });
+const trainLampMat = new THREE.MeshStandardMaterial({ color: 0xfff6d8, emissive: 0xffe9a8, emissiveIntensity: 1.0 });
+const trainWarnRedMat = new THREE.MeshStandardMaterial({ color: 0xd83a30, roughness: 0.5 });
+const trainWarnWhiteMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.5 });
+const rampMat = new THREE.MeshStandardMaterial({ color: 0xb5793f, roughness: 0.8 });
+const rampStripeMat = new THREE.MeshStandardMaterial({ color: 0x8a5a2a, roughness: 0.8 });
+
+// 金币和小障碍
 const coinMat = new THREE.MeshStandardMaterial({
   color: 0xffd700,
   metalness: 0.9,
   roughness: 0.15,
   emissive: 0xffaa00,
-  emissiveIntensity: 0.7,
+  emissiveIntensity: 0.55,
 });
-const barrierMat = new THREE.MeshStandardMaterial({
-  color: 0xff5a2e,
-  roughness: 0.5,
-  emissive: 0xd42a00,
-  emissiveIntensity: 0.35,
-});
-const barrierStripeMat = new THREE.MeshStandardMaterial({
-  color: 0xffffff,
-  roughness: 0.4,
-  emissive: 0xccccdd,
-  emissiveIntensity: 0.25,
-});
-const lowBarrierMat = new THREE.MeshStandardMaterial({
-  color: 0xffd21e,
-  roughness: 0.45,
-  emissive: 0xdd9900,
-  emissiveIntensity: 0.4,
-});
+const barrierMat = new THREE.MeshStandardMaterial({ color: 0xff5a2e, roughness: 0.5 });
+const barrierStripeMat = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, roughness: 0.4 });
+const lowBarrierMat = new THREE.MeshStandardMaterial({ color: 0xffc61e, roughness: 0.45 });
 const postMat = new THREE.MeshStandardMaterial({ color: 0x8890a8, metalness: 0.5, roughness: 0.4 });
-// 车顶设备机房（大型障碍，只能绕开）
-const housingMat = new THREE.MeshStandardMaterial({ color: 0x5c6880, metalness: 0.4, roughness: 0.45 });
-const housingVentMat = new THREE.MeshStandardMaterial({ color: 0x252c3e, roughness: 0.8 });
-const warnMat = new THREE.MeshStandardMaterial({ color: 0xffcc22, roughness: 0.5, emissive: 0xcc9900, emissiveIntensity: 0.3 });
-const beaconMat = new THREE.MeshStandardMaterial({ color: 0xff3344, emissive: 0xff2233, emissiveIntensity: 1.6 });
 
-// 墙上霓虹广告牌的颜色
-const AD_COLORS = [0x00d4ff, 0xff6b35, 0xffd700, 0x7cffb2, 0xff4d88, 0xbb88ff];
-const adMats = AD_COLORS.map(
-  (c) =>
-    new THREE.MeshStandardMaterial({
-      color: c,
-      emissive: c,
-      emissiveIntensity: 1.1,
-      roughness: 0.4,
-    }),
-);
+// 小人的材质
+const skinMat = new THREE.MeshStandardMaterial({ color: 0xffd6b3, roughness: 0.7 });
+const hoodieMat = new THREE.MeshStandardMaterial({ color: 0x2e6fd8, roughness: 0.7 });
+const jeansMat = new THREE.MeshStandardMaterial({ color: 0x3a5aa8, roughness: 0.75 });
+const capMat = new THREE.MeshStandardMaterial({ color: 0xd83a30, roughness: 0.6 });
+const shoeMat = new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.6 });
+const packMat = new THREE.MeshStandardMaterial({ color: 0xf5c518, roughness: 0.6 });
 
 // ============================================================
 // Geometries（同样全部共享）
 // ============================================================
-// 列车（玩家脚下的跑道）
-const roofGeo = new THREE.BoxGeometry(7.0, 0.3, CHUNK_LENGTH); // 车顶，顶面在 y=0
-const roofEdgeGeo = new THREE.BoxGeometry(0.16, 0.09, CHUNK_LENGTH); // 车顶两侧防滑沿
-const seamGeo = new THREE.BoxGeometry(7.02, 0.06, 0.55); // 车厢连接处的接缝
-const laneMarkGeo = new THREE.BoxGeometry(0.1, 0.04, CHUNK_LENGTH); // 车顶走线槽（兼当车道分隔线）
-const bodyGeo = new THREE.BoxGeometry(6.6, 2.5, CHUNK_LENGTH); // 车厢
-const windowGeo = new THREE.BoxGeometry(0.06, 0.55, CHUNK_LENGTH); // 车窗灯带
-const liveryGeo = new THREE.BoxGeometry(0.06, 0.2, CHUNK_LENGTH); // 车身色带
-// 隧道
-const groundGeo = new THREE.BoxGeometry(50, 0.3, CHUNK_LENGTH);
-const wallGeo = new THREE.BoxGeometry(0.4, 8.4, CHUNK_LENGTH);
-const wallTrimGeo = new THREE.BoxGeometry(0.5, 0.25, CHUNK_LENGTH);
-const pillarGeo = new THREE.BoxGeometry(0.45, 8.0, 0.45);
-const ceilingGeo = new THREE.BoxGeometry(TRACK_WIDTH + 4, 0.25, CHUNK_LENGTH);
-const stripGeo = new THREE.BoxGeometry(3.4, 0.05, 0.5);
-const adGeo = new THREE.BoxGeometry(0.08, 1.3, 2.6);
-// 金币和障碍物
+// 路基
+const ballastGeo = new THREE.BoxGeometry(11, 0.25, CHUNK_LENGTH);
+const sleeperGeo = new THREE.BoxGeometry(TRACK_WIDTH + 2.6, 0.1, 0.5);
+const railGeo = new THREE.BoxGeometry(0.13, 0.14, CHUNK_LENGTH);
+const sideWallGeo = new THREE.BoxGeometry(0.35, 1.0, CHUNK_LENGTH);
+const sideGroundGeo = new THREE.BoxGeometry(14, 0.2, CHUNK_LENGTH);
+const poleGeo = new THREE.BoxGeometry(0.16, 5.4, 0.16);
+const crossbarGeo = new THREE.BoxGeometry(11.4, 0.12, 0.12);
+const buildingWinGeo = new THREE.BoxGeometry(0.12, 1, 1); // 会按楼的大小缩放
+
+// 列车
+const trainBodyGeo = new THREE.BoxGeometry(2.0, 2.2, TRAIN_LEN);
+const trainRoofGeo = new THREE.BoxGeometry(1.8, 0.25, TRAIN_LEN);
+const trainUnderGeo = new THREE.BoxGeometry(1.6, 0.4, TRAIN_LEN * 0.88);
+const trainGlassGeo = new THREE.BoxGeometry(1.6, 0.9, 0.12);
+const trainSideWinGeo = new THREE.BoxGeometry(0.06, 0.6, TRAIN_LEN * 0.82);
+const trainLampGeo = new THREE.BoxGeometry(0.28, 0.28, 0.1);
+const trainWarnGeo = new THREE.BoxGeometry(1.9, 0.5, 0.1);
+const trainWarnStripeGeo = new THREE.BoxGeometry(1.92, 0.16, 0.12);
+const RAMP_SLOPE_LEN = Math.hypot(RAMP_LEN, ROOF_H) + 0.4;
+const rampGeo = new THREE.BoxGeometry(1.7, 0.14, RAMP_SLOPE_LEN);
+const rampStripeGeo = new THREE.BoxGeometry(1.72, 0.15, 0.35);
+
+// 金币和小障碍
 const coinGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.07, 24);
 const barrierGeo = new THREE.BoxGeometry(1.8, 1.0, 0.3);
 const barrierStripeGeo = new THREE.BoxGeometry(1.84, 0.22, 0.32);
 const lowBeamGeo = new THREE.BoxGeometry(1.9, 0.55, 0.3);
 const postGeo = new THREE.BoxGeometry(0.12, 1.75, 0.12);
-const housingGeo = new THREE.BoxGeometry(2.0, 2.6, 6); // 设备机房
-const housingVentGeo = new THREE.BoxGeometry(0.05, 1.2, 5.0); // 侧面散热格栅
-const warnGeo = new THREE.BoxGeometry(2.04, 0.3, 6.04); // 底部黄色警示带
-const beaconGeo = new THREE.BoxGeometry(0.25, 0.25, 0.25); // 顶部红色警示灯
 
 // ============================================================
-// Speed particles（速度感粒子：两侧向后飞的光点）
+// Speed particles（速度感粒子）
 // ============================================================
-const PARTICLE_COUNT = 160;
+const PARTICLE_COUNT = 120;
 const particlePositions = new Float32Array(PARTICLE_COUNT * 3);
 for (let i = 0; i < PARTICLE_COUNT; i++) {
-  particlePositions[i * 3 + 0] = (Math.random() - 0.5) * 9;
-  particlePositions[i * 3 + 1] = 0.3 + Math.random() * (TUNNEL_HEIGHT - 0.6);
+  particlePositions[i * 3 + 0] = (Math.random() - 0.5) * 10;
+  particlePositions[i * 3 + 1] = 0.3 + Math.random() * 4.5;
   particlePositions[i * 3 + 2] = -Math.random() * 70;
 }
 const particleGeo = new THREE.BufferGeometry();
 particleGeo.setAttribute("position", new THREE.BufferAttribute(particlePositions, 3));
 const particleMat = new THREE.PointsMaterial({
-  color: 0xaaccff,
+  color: 0xffffff,
   size: 0.05,
   transparent: true,
-  opacity: 0.35,
-  blending: THREE.AdditiveBlending,
+  opacity: 0.25,
   depthWrite: false,
 });
 const particles = new THREE.Points(particleGeo, particleMat);
@@ -281,7 +252,6 @@ scene.add(particles);
 //   z ranges from 0 (near edge, closest to camera) to -CHUNK_LENGTH (far edge).
 //
 // As the player "runs forward", chunks move toward +Z (toward camera).
-// When a chunk's position.z exceeds 5 (past the camera), it gets recycled.
 // ============================================================
 const chunks = [];
 
@@ -290,116 +260,80 @@ function createChunk(zStart) {
   group.position.z = zStart;
   scene.add(group);
 
-  // --- All mesh positions below are LOCAL (relative to group) ---
-  // Chunk spans from z=0 (near) to z=-CHUNK_LENGTH (far)
   const centerZ = -CHUNK_LENGTH / 2;
 
-  // —— 列车（玩家在车顶上跑，车顶表面 = y=0）——
+  // —— 铁轨路基 ——
+  const ballast = new THREE.Mesh(ballastGeo, ballastMat);
+  ballast.position.set(0, -0.125, centerZ);
+  ballast.receiveShadow = true;
+  group.add(ballast);
 
-  // 车顶跑道
-  const roof = new THREE.Mesh(roofGeo, roofMat);
-  roof.position.set(0, -0.15, centerZ);
-  roof.receiveShadow = true;
-  group.add(roof);
-
-  // 车顶两侧防滑沿
-  const edgeL = new THREE.Mesh(roofEdgeGeo, roofEdgeMat);
-  edgeL.position.set(-3.42, 0.045, centerZ);
-  group.add(edgeL);
-  const edgeR = new THREE.Mesh(roofEdgeGeo, roofEdgeMat);
-  edgeR.position.set(3.42, 0.045, centerZ);
-  group.add(edgeR);
-
-  // 车厢连接处的接缝（每 15 米一节车厢）
-  for (const seamZ of [-0.3, -15.3]) {
-    const seam = new THREE.Mesh(seamGeo, seamMat);
-    seam.position.set(0, 0.01, seamZ);
-    group.add(seam);
+  // 枕木
+  for (let i = 0; i < Math.floor(CHUNK_LENGTH / 1.2); i++) {
+    const sleeper = new THREE.Mesh(sleeperGeo, sleeperMat);
+    sleeper.position.set(0, 0.02, -(i * 1.2 + 0.6));
+    sleeper.receiveShadow = true;
+    group.add(sleeper);
   }
 
-  // 车顶走线槽（正好是三条车道的分隔线）
-  for (const lx of [-1.1, 1.1]) {
-    const mark = new THREE.Mesh(laneMarkGeo, laneMarkMat);
-    mark.position.set(lx, 0.02, centerZ);
-    group.add(mark);
-  }
-
-  // 车厢挂在车顶下面，两侧有发光车窗和色带
-  const body = new THREE.Mesh(bodyGeo, bodyMat);
-  body.position.set(0, -1.55, centerZ);
-  group.add(body);
-
-  for (const side of [-1, 1]) {
-    const win = new THREE.Mesh(windowGeo, windowMat);
-    win.position.set(side * 3.31, -1.15, centerZ);
-    group.add(win);
-    const livery = new THREE.Mesh(liveryGeo, liveryMat);
-    livery.position.set(side * 3.31, -1.62, centerZ);
-    group.add(livery);
-  }
-
-  // —— 隧道 ——
-
-  // 隧道地面（在列车下方很深处）
-  const ground = new THREE.Mesh(groundGeo, groundMat);
-  ground.position.set(0, -3.55, centerZ);
-  group.add(ground);
-
-  // Side walls（从隧道地面一直到天花板，离车顶边缘有落差）
-  const wallL = new THREE.Mesh(wallGeo, wallMat);
-  wallL.position.set(-WALL_X, 0.5, centerZ);
-  wallL.receiveShadow = true;
-  group.add(wallL);
-
-  const wallR = new THREE.Mesh(wallGeo, wallMat);
-  wallR.position.set(WALL_X, 0.5, centerZ);
-  wallR.receiveShadow = true;
-  group.add(wallR);
-
-  // 墙面装饰线条（增加层次感）
-  const trimL = new THREE.Mesh(wallTrimGeo, wallTrimMat);
-  trimL.position.set(-WALL_X, 1.6, centerZ);
-  group.add(trimL);
-  const trimR = new THREE.Mesh(wallTrimGeo, wallTrimMat);
-  trimR.position.set(WALL_X, 1.6, centerZ);
-  group.add(trimR);
-
-  // Pillars
-  for (let i = 0; i < Math.floor(CHUNK_LENGTH / 6); i++) {
-    const pz = -(i * 6 + 3);
-    const pL = new THREE.Mesh(pillarGeo, pillarMat);
-    pL.position.set(-WALL_X + 0.35, 0.6, pz);
-    pL.castShadow = true;
-    group.add(pL);
-    const pR = new THREE.Mesh(pillarGeo, pillarMat);
-    pR.position.set(WALL_X - 0.35, 0.6, pz);
-    pR.castShadow = true;
-    group.add(pR);
-  }
-
-  // Ceiling（比玩家头顶高很多，隧道才显得开阔）
-  const ceiling = new THREE.Mesh(ceilingGeo, ceilingMat);
-  ceiling.position.set(0, TUNNEL_HEIGHT, centerZ);
-  ceiling.receiveShadow = true;
-  group.add(ceiling);
-
-  // Ceiling light strips（共享材质，亮度适中不过曝）
-  for (let i = 0; i < 4; i++) {
-    const lightZ = -(i * (CHUNK_LENGTH / 4) + CHUNK_LENGTH / 8);
-    const strip = new THREE.Mesh(stripGeo, stripMat);
-    strip.position.set(0, TUNNEL_HEIGHT - 0.12, lightZ);
-    group.add(strip);
-  }
-
-  // 墙上的霓虹广告牌（随机颜色、随机位置、左右两侧都可能有）
-  for (let i = 0; i < 4; i++) {
+  // 三条车道各有一对铁轨
+  for (let lane = 0; lane < LANE_COUNT; lane++) {
     for (const side of [-1, 1]) {
-      if (Math.random() < 0.55) {
-        const ad = new THREE.Mesh(adGeo, adMats[Math.floor(Math.random() * adMats.length)]);
-        ad.position.set(side * (WALL_X - 0.27), 1.6 + Math.random() * 1.7, -(i * 7.5 + 2 + Math.random() * 4));
-        group.add(ad);
-      }
+      const rail = new THREE.Mesh(railGeo, railMat);
+      rail.position.set(LANE_X[lane] + side * 0.7, 0.1, centerZ);
+      rail.castShadow = true;
+      group.add(rail);
     }
+  }
+
+  // —— 两侧环境 ——
+  for (const side of [-1, 1]) {
+    // 边上的草地/地面
+    const sg = new THREE.Mesh(sideGroundGeo, sideGroundMat);
+    sg.position.set(side * 12.5, -0.1, centerZ);
+    sg.receiveShadow = true;
+    group.add(sg);
+
+    // 矮墙
+    const wall = new THREE.Mesh(sideWallGeo, sideWallMat);
+    wall.position.set(side * 5.8, 0.5, centerZ);
+    wall.castShadow = true;
+    wall.receiveShadow = true;
+    group.add(wall);
+
+    // 电线杆 + 横梁
+    for (const pz of [-7.5, -22.5]) {
+      const pole = new THREE.Mesh(poleGeo, poleMat);
+      pole.position.set(side * 5.4, 2.7, pz);
+      pole.castShadow = true;
+      group.add(pole);
+    }
+
+    // 楼房（随机高度/颜色）
+    for (const bz of [-7.5, -22.5]) {
+      const h = 7 + Math.random() * 9;
+      const mat = buildingMats[Math.floor(Math.random() * buildingMats.length)];
+      const bGeo = new THREE.BoxGeometry(6, h, 8);
+      const b = new THREE.Mesh(bGeo, mat);
+      b.position.set(side * (10.8 + Math.random() * 2), h / 2 - 0.1, bz + (Math.random() - 0.5) * 3);
+      b.castShadow = true;
+      group.add(b);
+      // 一整面深色窗户
+      const win = new THREE.Mesh(buildingWinGeo, buildingWinMat);
+      win.scale.set(1, h * 0.55, 5.6);
+      win.position.set(b.position.x - side * 3.02, h * 0.45, b.position.z);
+      group.add(win);
+      // 楼的 geometry 不共享，回收时要释放
+      group.userData.disposables = group.userData.disposables || [];
+      group.userData.disposables.push(bGeo);
+    }
+  }
+
+  // 横跨铁轨的电线横梁
+  for (const pz of [-7.5, -22.5]) {
+    const bar = new THREE.Mesh(crossbarGeo, poleMat);
+    bar.position.set(0, 5.3, pz);
+    group.add(bar);
   }
 
   // Obstacles & coins
@@ -411,29 +345,55 @@ function createChunk(zStart) {
 }
 
 function generateChunkContent(group, zStart, obstacles, coins) {
-  // Safe zone for first chunk (nearest to camera, zStart ~0)
-  // Local z from 0 to -CHUNK_LENGTH
+  // 最靠近玩家的第一段是安全区，只放金币
   if (zStart > -5) {
     for (let z = -5; z > -CHUNK_LENGTH; z -= COIN_SPACING) {
-      const coin = createCoin(0, COIN_Y, z); // local z
+      const coin = createCoin(0, COIN_Y, z);
       group.add(coin.mesh);
       coins.push(coin);
     }
     return;
   }
 
-  // For non-safe chunks, generate 3 sections
-  // Local z ranges from 0 (near) to -CHUNK_LENGTH (far)
   const sections = 3;
   const sectionLen = CHUNK_LENGTH / sections;
 
-  for (let s = 0; s < sections; s++) {
-    // Local z center of this section
+  let s = 0;
+  while (s < sections) {
     const sectionZ = -(s * sectionLen + sectionLen / 2);
     const roll = Math.random();
 
-    if (roll < 0.35) {
-      // Barrier (jump over)
+    if (roll < 0.4 && s < 2) {
+      // 列车（60% 概率带斜坡可以跑上车顶）
+      const lane = Math.floor(Math.random() * LANE_COUNT);
+      const hasRamp = Math.random() < 0.6;
+      const obstacle = createTrain(LANE_X[lane], sectionZ, hasRamp);
+      group.add(obstacle.mesh);
+      obstacles.push(obstacle);
+
+      if (hasRamp) {
+        // 车顶上放一排金币，奖励爬上来的玩家
+        for (let i = 0; i < 4; i++) {
+          const coinZ = sectionZ + TRAIN_LEN / 2 - 2 - i * 3;
+          const coin = createCoin(LANE_X[lane], ROOF_H + COIN_Y, coinZ);
+          group.add(coin.mesh);
+          coins.push(coin);
+        }
+      } else {
+        // 没斜坡的列车：金币放旁边的车道
+        const coinLane = (lane + 1 + Math.floor(Math.random() * 2)) % LANE_COUNT;
+        for (let i = 0; i < 3; i++) {
+          const coin = createCoin(LANE_X[coinLane], COIN_Y, sectionZ + i * COIN_SPACING);
+          group.add(coin.mesh);
+          coins.push(coin);
+        }
+      }
+      s += 2; // 列车很长，占掉下一段
+      continue;
+    }
+
+    if (roll < 0.6) {
+      // 路障 (jump over)
       const lane = Math.floor(Math.random() * LANE_COUNT);
       const obstacle = createBarrier(LANE_X[lane], sectionZ);
       group.add(obstacle.mesh);
@@ -441,51 +401,33 @@ function generateChunkContent(group, zStart, obstacles, coins) {
 
       const coinLane = (lane + 1 + Math.floor(Math.random() * 2)) % LANE_COUNT;
       for (let z = 0; z < 3; z++) {
-        const coinZ = sectionZ + z * COIN_SPACING;
-        const coin = createCoin(LANE_X[coinLane], COIN_Y, coinZ);
+        const coin = createCoin(LANE_X[coinLane], COIN_Y, sectionZ + z * COIN_SPACING);
         group.add(coin.mesh);
         coins.push(coin);
       }
-    } else if (roll < 0.55) {
-      // Low barrier (slide under)
+    } else if (roll < 0.75) {
+      // 悬空横梁 (slide under)
       const lane = Math.floor(Math.random() * LANE_COUNT);
       const obstacle = createLowBarrier(LANE_X[lane], sectionZ);
       group.add(obstacle.mesh);
       obstacles.push(obstacle);
 
       for (let z = 0; z < 3; z++) {
-        const coinZ = sectionZ + z * COIN_SPACING;
-        const coin = createCoin(LANE_X[lane], COIN_Y, coinZ);
-        group.add(coin.mesh);
-        coins.push(coin);
-      }
-    } else if (roll < 0.75) {
-      // 设备机房 (must switch lane)
-      const lane = Math.floor(Math.random() * LANE_COUNT);
-      const obstacle = createHousing(LANE_X[lane], sectionZ);
-      group.add(obstacle.mesh);
-      obstacles.push(obstacle);
-
-      const coinLane1 = (lane + 1) % LANE_COUNT;
-      const coinLane2 = (lane + 2) % LANE_COUNT;
-      for (let z = 0; z < 4; z++) {
-        const cl = z % 2 === 0 ? coinLane1 : coinLane2;
-        const coinZ = sectionZ + z * COIN_SPACING;
-        const coin = createCoin(LANE_X[cl], COIN_Y, coinZ);
+        const coin = createCoin(LANE_X[lane], COIN_Y, sectionZ + z * COIN_SPACING);
         group.add(coin.mesh);
         coins.push(coin);
       }
     } else {
-      // Coin arch
+      // 金币阵
       for (let lane = 0; lane < LANE_COUNT; lane++) {
         for (let z = 0; z < 2; z++) {
-          const coinZ = sectionZ + z * COIN_SPACING;
-          const coin = createCoin(LANE_X[lane], COIN_Y, coinZ);
+          const coin = createCoin(LANE_X[lane], COIN_Y, sectionZ + z * COIN_SPACING);
           group.add(coin.mesh);
           coins.push(coin);
         }
       }
     }
+    s += 1;
   }
 }
 
@@ -493,10 +435,11 @@ function generateChunkContent(group, zStart, obstacles, coins) {
 // Obstacle Factory
 // All positions are LOCAL coordinates within a chunk group.
 //
-// 碰撞体说明（y 轴范围）:
-//   barrier:    0 ~ 1.0   -> 必须跳过
-//   low beam:   1.15~1.75 -> 站立(1.7)会撞头, 滑铲(0.8)能钻过, 跳跃也会撞
-//   housing:    0 ~ 2.6   -> 设备机房，只能换道绕开
+// 碰撞规则（y 轴）:
+//   barrier:  0 ~ 1.0    -> 跳过
+//   low beam: 1.15~1.75  -> 只能滑铲
+//   train:    0 ~ ROOF_H -> 有斜坡就跑上去, 没斜坡只能换道;
+//                           站上车顶后是安全的, 跑过车头会掉下来
 // ============================================================
 function createBarrier(x, z) {
   const g = new THREE.Group();
@@ -505,22 +448,19 @@ function createBarrier(x, z) {
   body.castShadow = true;
   body.receiveShadow = true;
   g.add(body);
-  // 白色警示条纹
   const stripe = new THREE.Mesh(barrierStripeGeo, barrierStripeMat);
   stripe.position.y = 0.72;
   g.add(stripe);
   g.position.set(x, 0, z);
-  return { mesh: g, type: "barrier", w: 1.8, h: 1.0, d: 0.3, yBottom: 0, yTop: 1.0 };
+  return { mesh: g, type: "barrier", w: 1.8, d: 0.3, yBottom: 0, yTop: 1.0 };
 }
 
 function createLowBarrier(x, z) {
   const g = new THREE.Group();
-  // 悬空横梁：底部 1.15 米，站着过会撞头，必须滑铲
   const beam = new THREE.Mesh(lowBeamGeo, lowBarrierMat);
   beam.position.y = 1.45;
   beam.castShadow = true;
   g.add(beam);
-  // 两侧支撑柱（只是装饰，不参与碰撞）
   const postL = new THREE.Mesh(postGeo, postMat);
   postL.position.set(-0.89, 0.875, 0);
   g.add(postL);
@@ -528,33 +468,76 @@ function createLowBarrier(x, z) {
   postR.position.set(0.89, 0.875, 0);
   g.add(postR);
   g.position.set(x, 0, z);
-  return { mesh: g, type: "low", w: 1.8, h: 0.55, d: 0.3, yBottom: 1.15, yTop: 1.75 };
+  return { mesh: g, type: "low", w: 1.8, d: 0.3, yBottom: 1.15, yTop: 1.75 };
 }
 
-function createHousing(x, z) {
-  // 车顶设备机房：又高又长，跳不过钻不过，只能换道绕开
+function createTrain(x, z, hasRamp) {
   const g = new THREE.Group();
-  const body = new THREE.Mesh(housingGeo, housingMat);
+  const livery = Math.floor(Math.random() * TRAIN_LIVERIES.length);
+
+  // 车身
+  const body = new THREE.Mesh(trainBodyGeo, trainBodyMats[livery]);
   body.position.y = 1.3;
   body.castShadow = true;
   body.receiveShadow = true;
   g.add(body);
-  // 两侧散热格栅
+
+  // 车顶（浅色，顶面就是玩家跑的地方）
+  const roofCap = new THREE.Mesh(trainRoofGeo, trainRoofMats[livery]);
+  roofCap.position.y = 2.5;
+  roofCap.receiveShadow = true;
+  g.add(roofCap);
+
+  // 底部转向架
+  const under = new THREE.Mesh(trainUnderGeo, trainUnderMat);
+  under.position.y = 0.2;
+  g.add(under);
+
+  // 车头（朝向玩家的一面）：挡风玻璃 + 大灯 + 红白警示条
+  const front = TRAIN_LEN / 2 + 0.02;
+  const glass = new THREE.Mesh(trainGlassGeo, trainGlassMat);
+  glass.position.set(0, 1.85, front);
+  g.add(glass);
   for (const side of [-1, 1]) {
-    const vent = new THREE.Mesh(housingVentGeo, housingVentMat);
-    vent.position.set(side * 1.03, 1.5, 0);
-    g.add(vent);
+    const lamp = new THREE.Mesh(trainLampGeo, trainLampMat);
+    lamp.position.set(side * 0.6, 0.95, front);
+    g.add(lamp);
   }
-  // 底部黄色警示带
-  const warn = new THREE.Mesh(warnGeo, warnMat);
-  warn.position.y = 0.18;
+  const warn = new THREE.Mesh(trainWarnGeo, trainWarnRedMat);
+  warn.position.set(0, 0.45, front);
   g.add(warn);
-  // 顶部红色警示灯
-  const beacon = new THREE.Mesh(beaconGeo, beaconMat);
-  beacon.position.y = 2.73;
-  g.add(beacon);
+  const warnStripe = new THREE.Mesh(trainWarnStripeGeo, trainWarnWhiteMat);
+  warnStripe.position.set(0, 0.45, front + 0.02);
+  g.add(warnStripe);
+
+  // 两侧车窗长条
+  for (const side of [-1, 1]) {
+    const win = new THREE.Mesh(trainSideWinGeo, trainGlassMat);
+    win.position.set(side * 1.03, 1.7, 0);
+    g.add(win);
+  }
+
+  // 尾部斜坡（木板），从地面搭到车顶
+  if (hasRamp) {
+    const angle = Math.atan2(ROOF_H, RAMP_LEN);
+    const ramp = new THREE.Mesh(rampGeo, rampMat);
+    ramp.position.set(0, ROOF_H / 2 - 0.02, front + RAMP_LEN / 2);
+    ramp.rotation.x = -angle; // 近端(+z)在地面，远端(-z)搭在车顶
+    ramp.castShadow = true;
+    ramp.receiveShadow = true;
+    g.add(ramp);
+    // 木板上的横条纹
+    for (let i = 0; i < 3; i++) {
+      const stripe = new THREE.Mesh(rampStripeGeo, rampStripeMat);
+      stripe.position.set(0, ROOF_H / 2 - 0.02, front + RAMP_LEN / 2);
+      stripe.rotation.x = -angle;
+      stripe.translateZ(-RAMP_SLOPE_LEN / 2 + 1.2 + i * 1.5);
+      g.add(stripe);
+    }
+  }
+
   g.position.set(x, 0, z);
-  return { mesh: g, type: "housing", w: 2.0, h: 2.6, d: 6, yBottom: 0, yTop: 2.6 };
+  return { mesh: g, type: "train", w: 2.0, d: TRAIN_LEN, hasRamp, yBottom: 0, yTop: ROOF_H };
 }
 
 function createCoin(x, y, z) {
@@ -566,31 +549,99 @@ function createCoin(x, y, z) {
 }
 
 // ============================================================
-// Player hands (immersion)
-// 挂在 playerHolder 上，跟随车道/跳跃/滑铲移动
+// Character（低多边形小人：棒球帽 + 连帽衫 + 黄书包）
+// 挂在 playerHolder 上，面朝 -Z（奔跑方向），玩家看到的是背影
 // ============================================================
 const playerHolder = new THREE.Group();
+playerHolder.position.set(0, 0, PLAYER_Z);
 scene.add(playerHolder);
 
-const handGeo = new THREE.BoxGeometry(0.16, 0.22, 0.32);
-const handMat = new THREE.MeshStandardMaterial({ color: 0xe8bd8f, roughness: 0.55 });
-const HAND_Y = CAMERA_HEIGHT - 0.82; // 大部分藏在画面外，摆臂时探出来一点
-const leftHand = new THREE.Mesh(handGeo, handMat);
-leftHand.position.set(-0.35, HAND_Y, -0.95);
-leftHand.rotation.x = -0.5;
-playerHolder.add(leftHand);
+const charGroup = new THREE.Group();
+playerHolder.add(charGroup);
 
-const rightHand = new THREE.Mesh(handGeo, handMat);
-rightHand.position.set(0.35, HAND_Y, -0.95);
-rightHand.rotation.x = -0.5;
-playerHolder.add(rightHand);
+function makePart(w, h, d, mat, x, y, z, translateY = 0) {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  if (translateY !== 0) geo.translate(0, translateY, 0); // 移动旋转轴（比如让腿绕胯部转）
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  return mesh;
+}
+
+// 腿（旋转轴在胯部）+ 鞋
+const legL = makePart(0.18, 0.75, 0.22, jeansMat, -0.14, 0.78, 0, -0.375);
+const legR = makePart(0.18, 0.75, 0.22, jeansMat, 0.14, 0.78, 0, -0.375);
+const shoeL = makePart(0.2, 0.14, 0.34, shoeMat, 0, -0.7, -0.05);
+const shoeR = makePart(0.2, 0.14, 0.34, shoeMat, 0, -0.7, -0.05);
+legL.add(shoeL);
+legR.add(shoeR);
+charGroup.add(legL, legR);
+
+// 身体 + 书包
+const torso = makePart(0.55, 0.62, 0.32, hoodieMat, 0, 1.09, 0);
+charGroup.add(torso);
+const pack = makePart(0.42, 0.46, 0.2, packMat, 0, 1.12, 0.27);
+charGroup.add(pack);
+
+// 手臂（旋转轴在肩膀）+ 手
+const armL = makePart(0.15, 0.58, 0.18, hoodieMat, -0.37, 1.35, 0, -0.29);
+const armR = makePart(0.15, 0.58, 0.18, hoodieMat, 0.37, 1.35, 0, -0.29);
+const handL = makePart(0.15, 0.13, 0.18, skinMat, 0, -0.53, 0);
+const handR = makePart(0.15, 0.13, 0.18, skinMat, 0, -0.53, 0);
+armL.add(handL);
+armR.add(handR);
+charGroup.add(armL, armR);
+
+// 头 + 棒球帽（帽檐朝前）
+const head = makePart(0.44, 0.42, 0.44, skinMat, 0, 1.62, 0);
+charGroup.add(head);
+const cap = makePart(0.48, 0.13, 0.48, capMat, 0, 1.87, 0);
+const brim = makePart(0.44, 0.05, 0.24, capMat, 0, 1.82, -0.33);
+charGroup.add(cap, brim);
+
+// 小人的跑步/跳跃/滑铲动画
+function animateCharacter(runT) {
+  if (state.sliding) {
+    // 滑铲：整个人向后仰，腿伸直往前
+    charGroup.rotation.x = 1.15;
+    charGroup.position.y = 0.35;
+    charGroup.position.z = 0.3;
+    legL.rotation.x = -0.15;
+    legR.rotation.x = 0.15;
+    armL.rotation.x = -2.6;
+    armR.rotation.x = -2.6;
+    return;
+  }
+  charGroup.rotation.x = 0;
+  charGroup.position.z = 0;
+
+  if (state.jumping || state.falling) {
+    // 空中：前腿抬起后腿蹬直，手臂上摆
+    charGroup.position.y = 0;
+    legL.rotation.x = -1.1;
+    legR.rotation.x = 0.5;
+    armL.rotation.x = 0.6;
+    armR.rotation.x = -2.4;
+    return;
+  }
+
+  // 跑步循环：腿和手臂交替摆动
+  const swing = Math.sin(runT);
+  legL.rotation.x = swing * 1.0;
+  legR.rotation.x = -swing * 1.0;
+  armL.rotation.x = -swing * 0.85;
+  armR.rotation.x = swing * 0.85;
+  charGroup.position.y = Math.abs(Math.cos(runT)) * 0.07; // 跑步的上下颠动
+}
 
 // ============================================================
 // Init / Recycle chunks
 // ============================================================
 function disposeChunk(chunk) {
   scene.remove(chunk.group);
-  // 所有 geometry / material 都是共享的，直接移除 group 即可，不会泄漏
+  // 楼房的 geometry 是每栋随机的，需要手动释放
+  const disposables = chunk.group.userData.disposables;
+  if (disposables) for (const geo of disposables) geo.dispose();
 }
 
 function initChunks() {
@@ -599,7 +650,6 @@ function initChunks() {
   }
   chunks.length = 0;
 
-  // Chunks extend in -Z direction (ahead of camera at z=0)
   let z = 0;
   for (let i = 0; i < VISIBLE_CHUNKS; i++) {
     const chunk = createChunk(z);
@@ -614,16 +664,13 @@ function moveWorld(dist) {
     chunk.group.position.z += dist;
   }
 
-  // Recycle chunks that passed the camera
-  // 注意: group.position.z 是这段隧道的【近端】，远端在 z - CHUNK_LENGTH。
-  // 必须等整段隧道都跑到身后（远端 > 5）才能回收，
-  // 否则会把眼前还剩 25 米的隧道整段删掉，看起来像突然重新进了一段隧道。
+  // 注意: group.position.z 是这段场景的【近端】，远端在 z - CHUNK_LENGTH。
+  // 必须等整段都跑到身后才回收，否则眼前的场景会突然消失。
   for (let i = chunks.length - 1; i >= 0; i--) {
     const chunk = chunks[i];
     if (chunk.group.position.z - CHUNK_LENGTH > 5) {
       disposeChunk(chunk);
       chunks.splice(i, 1);
-      // Find the furthest chunk (most negative z) and create new one beyond it
       let minZ = Infinity;
       for (const c of chunks) {
         if (c.group.position.z < minZ) minZ = c.group.position.z;
@@ -646,7 +693,7 @@ function animateCoins(dt, time) {
   }
 }
 
-// 速度粒子向后飞，飞过相机就绕回远处
+// 速度粒子向后飞
 function animateParticles(dt, speed) {
   const pos = particleGeo.attributes.position;
   for (let i = 0; i < PARTICLE_COUNT; i++) {
@@ -655,8 +702,32 @@ function animateParticles(dt, speed) {
     pos.setZ(i, z);
   }
   pos.needsUpdate = true;
-  // 速度越快粒子越亮，增强速度感
-  particleMat.opacity = 0.2 + ((speed - START_SPEED) / (MAX_SPEED - START_SPEED)) * 0.55;
+  particleMat.opacity = 0.1 + ((speed - START_SPEED) / (MAX_SPEED - START_SPEED)) * 0.35;
+}
+
+// ============================================================
+// 地面高度：玩家脚下是铁轨(0)还是车顶(ROOF_H)？
+// 斜坡区域内高度线性上升，跑上去就自然爬升
+// ============================================================
+function surfaceHeightAt(px) {
+  let h = 0;
+  for (const chunk of chunks) {
+    for (const obs of chunk.obstacles) {
+      if (obs.type !== "train") continue;
+      if (Math.abs(obs.mesh.position.x - px) > obs.w / 2 + 0.3) continue;
+
+      const zNear = obs.mesh.position.z + chunk.group.position.z + obs.d / 2;
+      const zFar = zNear - obs.d;
+
+      if (PLAYER_Z <= zNear && PLAYER_Z >= zFar) {
+        h = Math.max(h, ROOF_H); // 站在车顶上
+      } else if (obs.hasRamp && PLAYER_Z > zNear && PLAYER_Z <= zNear + RAMP_LEN) {
+        const t = 1 - (PLAYER_Z - zNear) / RAMP_LEN; // 0=坡底 1=坡顶
+        h = Math.max(h, ROOF_H * t);
+      }
+    }
+  }
+  return h;
 }
 
 // ============================================================
@@ -672,14 +743,14 @@ function startGame() {
   state.playerY = 0;
   state.playerVelY = 0;
   state.jumping = false;
+  state.falling = false;
   state.sliding = false;
   state.slideTimer = 0;
   state.jumpBuffer = 0;
   state.slideOnLand = false;
   state.cameraShake = 0;
 
-  // Reset player position
-  playerHolder.position.set(0, 0, 0);
+  playerHolder.position.set(0, 0, PLAYER_Z);
 
   initChunks();
   startLayer.classList.add("hidden");
@@ -731,29 +802,51 @@ function updatePlayer(dt) {
   const currentX = playerHolder.position.x;
   playerHolder.position.x += (targetX - currentX) * Math.min(1, LANE_LERP_SPEED * dt);
 
+  // 脚下表面高度（铁轨 0 / 斜坡渐变 / 车顶 ROOF_H）
+  const surface = surfaceHeightAt(playerHolder.position.x);
+
   // Jump buffer: 落地前一小段时间内按的跳跃，落地后立即执行
   if (state.jumpBuffer > 0) {
     state.jumpBuffer -= dt;
-    if (!state.jumping && !state.sliding) {
+    if (!state.jumping && !state.falling && !state.sliding) {
       state.jumpBuffer = 0;
       doJump();
     }
   }
 
-  // Jumping
+  // —— 垂直方向物理 ——
   if (state.jumping) {
     state.playerVelY += GRAVITY * dt;
     state.playerY += state.playerVelY * dt;
-    if (state.playerY <= 0) {
-      state.playerY = 0;
+    if (state.playerY <= surface && state.playerVelY <= 0) {
+      state.playerY = surface;
       state.playerVelY = 0;
       state.jumping = false;
-      // 空中按了下滑 -> 落地立刻滑铲
       if (state.slideOnLand) {
         state.slideOnLand = false;
         doSlide();
       }
     }
+  } else if (state.playerY > surface + 0.02) {
+    // 脚下悬空（跑过车头/换道离开车顶）-> 掉下去
+    state.falling = true;
+    state.playerVelY += GRAVITY * dt;
+    state.playerY += state.playerVelY * dt;
+    if (state.playerY <= surface) {
+      state.playerY = surface;
+      state.playerVelY = 0;
+      state.falling = false;
+    }
+  } else {
+    // 表面一帧内突然抬升超过半米 = 一堵墙怼在脸上（高速时防止穿过车头判定）
+    if (surface > state.playerY + 0.55) {
+      hitObstacle();
+      return;
+    }
+    // 贴着表面跑（斜坡上表面在升高，跟着爬上去）
+    state.playerY = surface;
+    state.playerVelY = 0;
+    state.falling = false;
   }
 
   // Sliding
@@ -766,47 +859,31 @@ function updatePlayer(dt) {
 
   playerHolder.position.y = state.playerY;
 
-  // Camera follows player
-  camera.position.x = playerHolder.position.x;
+  // —— 第三人称相机跟随 ——
+  camera.position.x = playerHolder.position.x * 0.72;
+  const targetCamY = CAMERA_HEIGHT + state.playerY * 0.8;
+  camera.position.y += (targetCamY - camera.position.y) * Math.min(1, 8 * dt);
   camera.position.z = 0;
 
-  // 滑铲时视角压低，其他时候平滑回到站立高度
-  const targetCamY = (state.sliding ? CAMERA_SLIDE_HEIGHT : CAMERA_HEIGHT) + state.playerY;
-  camera.position.y += (targetCamY - camera.position.y) * Math.min(1, 14 * dt);
-
-  // 速度越快视野越广（FOV 变大），增强冲刺感
+  // 速度越快视野越广，增强冲刺感
   const speedRatio = (state.speed - START_SPEED) / (MAX_SPEED - START_SPEED);
-  camera.fov = BASE_FOV + speedRatio * 9;
+  camera.fov = BASE_FOV + speedRatio * 8;
   camera.updateProjectionMatrix();
 
-  // Camera light follows player
-  camLight.position.x = playerHolder.position.x;
-  camLight.position.y = 2.5 + state.playerY;
+  // 阳光跟着玩家（保证影子一直在身边渲染）
+  sun.position.set(playerHolder.position.x + 10, 24, 8);
+  sun.target.position.set(playerHolder.position.x, 0, PLAYER_Z);
 
   // Camera tilt during lane change
   const laneOffset = targetX - currentX;
-  camera.rotation.z = -laneOffset * 0.05;
+  camera.rotation.z = -laneOffset * 0.04;
+  camera.rotation.x = -0.33;
 
-  // 滑铲时微微抬头，正常时回到默认角度
-  const targetPitch = state.sliding ? 0.12 : -0.05;
-  camera.rotation.x += (targetPitch - camera.rotation.x) * Math.min(1, 10 * dt);
+  // 小人朝换道方向微微倾斜
+  charGroup.rotation.z = laneOffset * 0.12;
 
-  // Hands bob
-  const bobTime = state.distance * 0.35;
-  const bobAmount = state.jumping ? 0 : 0.09;
-  leftHand.position.y = HAND_Y + Math.sin(bobTime) * bobAmount;
-  rightHand.position.y = HAND_Y + Math.sin(bobTime + Math.PI) * bobAmount;
-
-  if (state.sliding) {
-    // 滑铲时双手前伸压低
-    leftHand.position.y = CAMERA_SLIDE_HEIGHT - 0.6;
-    rightHand.position.y = CAMERA_SLIDE_HEIGHT - 0.6;
-    leftHand.rotation.x = -0.1;
-    rightHand.rotation.x = -0.1;
-  } else {
-    leftHand.rotation.x = -0.5;
-    rightHand.rotation.x = -0.5;
-  }
+  // 小人动画
+  animateCharacter(state.distance * 0.6);
 
   // Collisions & coin collection
   checkCollisions();
@@ -817,23 +894,29 @@ function updatePlayer(dt) {
 
 function checkCollisions() {
   const playerX = playerHolder.position.x;
-  const playerZ = 0; // Player is always at world z=0
   const playerHeight = state.sliding ? PLAYER_SLIDE_HEIGHT : PLAYER_STAND_HEIGHT;
   const playerYBottom = state.playerY;
   const playerYTop = playerYBottom + playerHeight;
 
   for (const chunk of chunks) {
     for (const obs of chunk.obstacles) {
-      // World z = local z (mesh.position.z) + group offset (chunk.group.position.z)
+      const obsX = obs.mesh.position.x;
+      const dx = Math.abs(obsX - playerX);
+      if (dx >= obs.w / 2 + 0.3) continue;
+
       const worldZ = obs.mesh.position.z + chunk.group.position.z;
-      const dz = Math.abs(worldZ - playerZ);
 
-      if (dz < obs.d / 2 + 0.4) {
-        const obsX = obs.mesh.position.x;
-        const dx = Math.abs(obsX - playerX);
-
-        if (dx < obs.w / 2 + 0.35) {
-          // 每种障碍物有自己的 y 轴碰撞区间
+      if (obs.type === "train") {
+        // 撞车头/车侧：人在车顶以下且和车身重叠
+        const zNear = worldZ + obs.d / 2;
+        const zFar = worldZ - obs.d / 2;
+        if (PLAYER_Z < zNear + 0.3 && PLAYER_Z > zFar - 0.3 && playerYBottom < ROOF_H - 0.4) {
+          hitObstacle();
+          return;
+        }
+      } else {
+        const dz = Math.abs(worldZ - PLAYER_Z);
+        if (dz < obs.d / 2 + 0.4) {
           if (playerYTop > obs.yBottom && playerYBottom < obs.yTop) {
             hitObstacle();
             return;
@@ -846,16 +929,14 @@ function checkCollisions() {
 
 function collectCoins() {
   const playerX = playerHolder.position.x;
-  const playerZ = 0;
   const playerYCenter = state.playerY + COIN_Y;
 
   for (const chunk of chunks) {
     for (const coin of chunk.coins) {
       if (coin.collected) continue;
 
-      // World z = local z + group offset
       const worldZ = coin.mesh.position.z + chunk.group.position.z;
-      const dz = Math.abs(worldZ - playerZ);
+      const dz = Math.abs(worldZ - PLAYER_Z);
       const dx = Math.abs(coin.mesh.position.x - playerX);
       const dy = Math.abs(coin.mesh.position.y - playerYCenter);
 
@@ -871,6 +952,7 @@ function collectCoins() {
 
 function doJump() {
   state.jumping = true;
+  state.falling = false;
   state.sliding = false;
   state.playerVelY = JUMP_VELOCITY;
 }
@@ -882,13 +964,11 @@ function doSlide() {
 
 function jump() {
   if (state.phase !== "running") return;
-  if (state.jumping) {
-    // 空中按跳：记入缓冲，落地立即起跳（操作更跟手）
+  if (state.jumping || state.falling) {
     state.jumpBuffer = JUMP_BUFFER_TIME;
     return;
   }
   if (state.sliding) {
-    // 滑铲中按跳：直接起跳打断滑铲
     state.sliding = false;
   }
   doJump();
@@ -896,8 +976,7 @@ function jump() {
 
 function slide() {
   if (state.phase !== "running") return;
-  if (state.jumping) {
-    // 空中按下滑 -> 快速下坠，落地自动接滑铲
+  if (state.jumping || state.falling) {
     state.playerVelY = Math.min(state.playerVelY, FAST_FALL_VELOCITY);
     state.slideOnLand = true;
     return;
@@ -932,8 +1011,6 @@ function updateHUD() {
 // ============================================================
 // Input
 // 统一用 Pointer 事件：鼠标和触屏共用同一套滑动/点击逻辑
-// - 滑动超过阈值立刻触发（不用等手指抬起，更跟手）
-// - 快速点按 = 跳跃
 // ============================================================
 function setupInput() {
   // --- Keyboard ---
@@ -970,14 +1047,9 @@ function setupInput() {
   });
 
   // --- Virtual joystick（左下角摇杆，拨动方向触发动作） ---
-  // 手感设计：
-  //   拨过触发圈立即执行（换道/跳/铲），不用等松手
-  //   回到中心圈内重新武装，可以连续拨同一方向
-  //   按住不放直接滚向另一个方向，也会触发新动作（比如按住右再往上滚 = 跳）
-  // 半径按摇杆实际大小换算（小屏幕上摇杆会缩小）
-  let joyMaxR = 46; // 摇杆头最大移动半径 px
-  let joyTriggerR = 28; // 拨过这个距离触发动作
-  let joyRearmR = 13; // 回到这个距离以内重新武装
+  let joyMaxR = 46;
+  let joyTriggerR = 28;
+  let joyRearmR = 13;
   let joyPointerId = null;
   let joyCenterX = 0;
   let joyCenterY = 0;
@@ -995,7 +1067,6 @@ function setupInput() {
     const dy = e.clientY - joyCenterY;
     const mag = Math.hypot(dx, dy);
 
-    // 摇杆头跟随手指（限制在最大半径内）
     const clamped = Math.min(mag, joyMaxR);
     const nx = mag > 0 ? dx / mag : 0;
     const ny = mag > 0 ? dy / mag : 0;
@@ -1039,15 +1110,15 @@ function setupInput() {
     joyPointerId = null;
     joyLastDir = null;
     joystick.classList.remove("active");
-    joystickKnob.style.transform = "translate(0px, 0px)"; // 弹回中心
+    joystickKnob.style.transform = "translate(0px, 0px)";
   }
 
   joystick.addEventListener("pointerup", joyRelease);
   joystick.addEventListener("pointercancel", joyRelease);
 
   // --- Swipe / tap（鼠标和触屏统一处理） ---
-  const SWIPE_THRESHOLD = 26; // px，滑动判定距离
-  const TAP_TIME = 300; // ms，快速点按判定
+  const SWIPE_THRESHOLD = 26;
+  const TAP_TIME = 300;
   let startX = 0;
   let startY = 0;
   let startTime = 0;
@@ -1072,7 +1143,6 @@ function setupInput() {
     const absY = Math.abs(dy);
     if (absX < SWIPE_THRESHOLD && absY < SWIPE_THRESHOLD) return;
 
-    // 滑动达到阈值 -> 立刻执行，不等抬起
     swipeConsumed = true;
     if (absX > absY) {
       if (dx > 0) moveRight();
@@ -1089,7 +1159,6 @@ function setupInput() {
     if (swipeConsumed) return;
     if (state.phase !== "running") return;
 
-    // 短促点按 = 跳跃
     if (performance.now() - startTime < TAP_TIME) {
       jump();
     }
@@ -1138,9 +1207,10 @@ function animate(now) {
     updatePlayer(dt);
     animateParticles(dt, state.speed);
   } else if (state.phase === "menu" || state.phase === "over") {
-    // 开始/结算界面背后：场景慢速滚动，画面是活的
+    // 开始/结算界面背后：场景慢速滚动，小人原地小跑
     moveWorld(MENU_SPEED * dt);
     animateParticles(dt, MENU_SPEED);
+    animateCharacter(elapsed * 7);
   }
 
   animateCoins(dt, elapsed);
@@ -1164,4 +1234,4 @@ resize();
 animate(performance.now());
 
 // 调试用：在控制台里可以直接查看游戏状态，例如 __game.state.speed
-window.__game = { state, camera, chunks, startGame };
+window.__game = { state, camera, chunks, startGame, charGroup };
