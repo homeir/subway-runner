@@ -1,0 +1,13 @@
+{
+  "name": "subway-runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "python3 -m http.server 5174 --bind 0.0.0.0",
+    "build": "node scripts/prepare-pages.mjs",
+    "version:bump": "node scripts/bump-version.mjs",
+    "deploy": "npm run version:bump && npm run build && HOME=$PWD/.wrangler-home WRANGLER_WRITE_LOGS=false WRANGLER_LOG_PATH=.wrangler/logs wrangler pages deploy .deploy --project-name subway-runner --branch main"
+  },
+  "devDependencies": {}
+}

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <title>地铁跑酷</title>
+    <link rel="stylesheet" href="./src/styles.css?v=0.1.0" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <main id="game">
+      <canvas id="scene" aria-label="地铁跑酷游戏画面"></canvas>
+
+      <!-- HUD -->
+      <div class="hud top-hud">
+        <div class="brand">
+          <span class="brand-mark">🏃</span>
+          <span>地铁跑酷</span>
+        </div>
+        <div class="score-display">
+          <div class="score-item">
+            <span class="score-label">距离</span>
+            <span class="score-value" id="distanceValue">0m</span>
+          </div>
+          <div class="score-item">
+            <span class="score-label">金币</span>
+            <span class="score-value coin-color" id="coinValue">0</span>
+          </div>
+          <div class="score-item">
+            <span class="score-label">分数</span>
+            <span class="score-value" id="scoreValue">0</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="speed-badge" id="speedBadge" aria-live="polite">
+        <span class="speed-label">SPEED</span>
+        <span class="speed-value" id="speedValue">1.0x</span>
+      </div>
+
+      <!-- Start screen -->
+      <div class="start-layer" id="startLayer">
+        <div class="start-panel">
+          <h1 class="game-title">地铁跑酷</h1>
+          <p class="game-subtitle">Subway Runner</p>
+          <button class="start-button" id="startButton" type="button">开始</button>
+          <div class="version-badge" id="versionBadge">v0.1.0</div>
+          <div class="controls-hint">
+            <div class="control-row"><kbd>A</kbd><kbd>D</kbd> <span>左右移动</span></div>
+            <div class="control-row"><kbd>W</kbd> 或 <kbd>Space</kbd> <span>跳跃</span></div>
+            <div class="control-row"><kbd>S</kbd> <span>滑铲</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Game over screen -->
+      <div class="gameover-layer hidden" id="gameoverLayer">
+        <div class="gameover-panel">
+          <h2 class="gameover-title">游戏结束</h2>
+          <div class="gameover-stats">
+            <div class="stat-row"><span>距离</span><strong id="finalDistance">0m</strong></div>
+            <div class="stat-row"><span>金币</span><strong id="finalCoins">0</strong></div>
+            <div class="stat-row"><span>分数</span><strong id="finalScore">0</strong></div>
+            <div class="stat-row best-row"><span>最佳分数</span><strong id="bestScore">0</strong></div>
+          </div>
+          <button class="restart-button" id="restartButton" type="button">再来一局</button>
+        </div>
+      </div>
+
+      <!-- Touch controls for mobile -->
+      <div class="touch-zone" id="touchZone"></div>
+    </main>
+
+    <script type="module" src="./src/main.js?v=0.1.0"></script>
+  </body>
+</html>
