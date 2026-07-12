@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { APP_VERSION } from "./version.js?v=0.6.0";
-import { QUESTIONS } from "./questions.js?v=0.6.0";
+import { APP_VERSION } from "./version.js?v=0.6.1";
+import { QUESTIONS } from "./questions.js?v=0.6.1";
 
 // ============================================================
 // DOM
@@ -831,6 +831,7 @@ function startGame() {
   ensureAudio(); // 必须在用户点击里初始化，否则 iOS 不出声
   requestGyro(); // 同理，陀螺仪权限也要在用户手势里申请
   gyroNeutral = null; // 重新校准"水平"角度（这一刻怎么拿就是水平）
+  gyroLastDir = null;
   state.phase = "running";
   state.speed = START_SPEED;
   state.distance = 0;
@@ -1328,16 +1329,19 @@ function updateHUD() {
 // ============================================================
 // 陀螺仪换道（iPad 左右倾斜）
 //
-// 把 iPad 当方向盘：向左倾斜 = 左车道，放平 = 中间，向右 = 右车道。
+// 【一次倾斜 = 一次换道】，像甩方向盘打一下：
+//   - 倾斜超过触发角，记一次"左"或"右"，换一条道，然后就不再动
+//   - 回正之后重新武装，再倾斜一次才再换一条
+//   - 直接往反方向倾斜不用先回正，立即换向（来不及回正也没关系）
 // 开始游戏那一刻的角度会被记为"水平"（校准），所以怎么舒服怎么拿。
-// 带回滞：进入侧车道要倾斜 >12°，回中间只要 <7°，避免在边界抖动。
 // ============================================================
-const TILT_ENTER = 12; // 倾斜超过这个角度 -> 进侧车道
-const TILT_EXIT = 7; // 回正到这个角度以内 -> 回中间车道
+const TILT_TRIGGER = 14; // 倾斜超过这个角度触发一次换道
+const TILT_REARM = 6; // 回正到这个角度以内，重新武装同方向
 let gyroActive = false; // 是否收到过有效的陀螺仪数据
 let gyroPermissionAsked = false;
 let gyroRoll = 0; // 当前左右倾斜角（度）
 let gyroNeutral = null; // 校准的"水平"角度，null = 等待下一个事件时校准
+let gyroLastDir = null; // 这次倾斜已经触发过的方向
 
 function onDeviceOrientation(e) {
   if (e.beta === null || e.gamma === null) return;
@@ -1369,13 +1373,22 @@ async function requestGyro() {
   }
 }
 
-// 每帧根据倾斜角选车道（在 updatePlayer 里调用）
+// 每帧检查倾斜（在 updatePlayer 里调用）：一次倾斜只换一条道
 function applyGyroLane() {
   if (!gyroActive || gyroNeutral === null) return;
   const rel = gyroRoll - gyroNeutral;
-  if (state.lane !== 0 && rel < -TILT_ENTER) state.lane = 0;
-  else if (state.lane !== 2 && rel > TILT_ENTER) state.lane = 2;
-  else if (state.lane !== 1 && Math.abs(rel) < TILT_EXIT) state.lane = 1;
+
+  if (Math.abs(rel) < TILT_REARM) {
+    gyroLastDir = null; // 回正了，重新武装
+    return;
+  }
+  if (rel < -TILT_TRIGGER && gyroLastDir !== "left") {
+    gyroLastDir = "left";
+    moveLeft();
+  } else if (rel > TILT_TRIGGER && gyroLastDir !== "right") {
+    gyroLastDir = "right";
+    moveRight();
+  }
 }
 
 // ============================================================

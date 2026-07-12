@@ -61,7 +61,7 @@ export const QUESTIONS = [
   // ==================== 英语 ====================
   { sub: "英语", type: "choice", q: "“apple”的意思是？", options: ["香蕉", "苹果", "橘子", "葡萄"], answer: 1 },
   { sub: "英语", type: "choice", q: "What colour is the sky on a sunny day?", options: ["Red", "Green", "Blue", "Black"], answer: 2 },
-  { sub: "英语", type: "fill", q: "I （　） a student. (填 am / is / are)", answer: ["am"] },
+  { sub: "英语", type: "choice", q: "I （　） a student.", options: ["am", "is", "are", "be"], answer: 0 },
   { sub: "英语", type: "judge", q: "“dog”的意思是“猫”", answer: false },
   { sub: "英语", type: "choice", q: "one cat, two （　）", options: ["cat", "cats", "cates", "caties"], answer: 1 },
   { sub: "英语", type: "choice", q: "“早上好”用英语怎么说？", options: ["Good night", "Good afternoon", "Good morning", "Goodbye"], answer: 2 },
@@ -73,7 +73,7 @@ export const QUESTIONS = [
   { sub: "英语", type: "judge", q: "“Monday”是星期一", answer: true },
   { sub: "英语", type: "choice", q: "How old （　） you?", options: ["am", "is", "are", "be"], answer: 2 },
   { sub: "英语", type: "choice", q: "big 的反义词是？", options: ["small", "tall", "long", "fat"], answer: 0 },
-  { sub: "英语", type: "fill", q: "This is （　） apple. (填 a / an)", answer: ["an"] },
+  { sub: "英语", type: "choice", q: "This is （　） apple.", options: ["a", "an", "two", "the"], answer: 1 },
   { sub: "英语", type: "judge", q: "“eleven”是数字 12", answer: false },
   { sub: "英语", type: "choice", q: "“兔子”的英文是？", options: ["cat", "dog", "rabbit", "bird"], answer: 2 },
   { sub: "英语", type: "choice", q: "We （　） students.", options: ["am", "is", "are", "be"], answer: 2 },

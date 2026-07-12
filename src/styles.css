@@ -488,6 +488,14 @@ html, body {
   box-shadow: var(--shadow);
 }
 
+/* iPad 弹出软键盘时视口变矮：面板内部滚动，各行不许压缩重叠 */
+.quiz-head,
+.quiz-question,
+.quiz-answers,
+.quiz-feedback {
+  flex-shrink: 0;
+}
+
 .quiz-head {
   display: flex;
   align-items: center;
