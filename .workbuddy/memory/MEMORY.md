@@ -45,6 +45,20 @@
 - 所有 geometry/material 共享, chunk 回收不泄漏; 不再每 chunk 放点光源
 - 调试: 控制台 window.__game = { state, camera, chunks, startGame }
 
+## v0.6.0 新增
+- 操控大改: 移除虚拟摇杆
+  - 陀螺仪换道: 左右倾斜 iPad 选车道 (绝对三区映射: <-12°左道/±7°内中道/>12°右道, 带回滞)
+    iOS 需在用户手势里 DeviceOrientationEvent.requestPermission (startGame 里调 requestGyro)
+    每局开始把当时角度校准为"水平" (gyroNeutral=null 触发重校准)
+    屏幕方向不同轴不同: angle 90 -> beta, -90 -> -beta, 0 -> gamma
+  - 左右大按钮: 左下=蹲(橙) 右下=跳(蓝), 96px, 直接拇指按; 滑动/键盘仍保留
+- 复活答题: 撞障碍 -> 700ms 后弹答题邀请 (开始答题/结束本局)
+  - 题库 src/questions.js: 上海三年级语数英各20题, choice/fill/judge 三种题型
+  - 5 题答对 3 题复活; 提前判定 (对满3=过, 错满3=败); 同会话尽量不重复出题 (usedQuestions)
+  - 复活: 清空面前 35m 障碍 + 2.5s 无敌(小人闪烁) + 降速40%; 失败 -> 结算
+  - 键盘处理在 quiz phase 直接 return (填空要打字); 填空 input keydown stopPropagation
+  - bump-version.mjs 已支持 questions.js?v= 缓存戳
+
 ## v0.5.0 新增
 - 修复斜坡方向反了: ramp rotation.x 必须是【正角度】(-z 端翘起搭上车顶, +z 端贴地朝玩家);
   负角度会变成高的那头朝玩家, 视觉完全反向

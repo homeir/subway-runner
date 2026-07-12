@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { APP_VERSION } from "./version.js?v=0.5.0";
+import { APP_VERSION } from "./version.js?v=0.6.0";
+import { QUESTIONS } from "./questions.js?v=0.6.0";
 
 // ============================================================
 // DOM
@@ -23,9 +24,18 @@ const bestScore = document.querySelector("#bestScore");
 const newRecordBadge = document.querySelector("#newRecordBadge");
 const hitFlash = document.querySelector("#hitFlash");
 
-// Virtual joystick
-const joystick = document.querySelector("#joystick");
-const joystickKnob = document.querySelector("#joystickKnob");
+// 左右两侧的大按钮（蹲 / 跳）
+const btnSlide = document.querySelector("#btnSlide");
+const btnJump = document.querySelector("#btnJump");
+
+// 复活答题界面
+const quizLayer = document.querySelector("#quizLayer");
+const quizProgress = document.querySelector("#quizProgress");
+const quizSubject = document.querySelector("#quizSubject");
+const quizDots = document.querySelector("#quizDots");
+const quizQuestion = document.querySelector("#quizQuestion");
+const quizAnswers = document.querySelector("#quizAnswers");
+const quizFeedback = document.querySelector("#quizFeedback");
 
 versionBadge.textContent = `v${APP_VERSION}`;
 
@@ -129,6 +139,8 @@ const state = {
   jumpBuffer: 0,
   slideOnLand: false,
   cameraShake: 0,
+  invincible: 0, // 复活后的无敌剩余时间（秒）
+  revivesUsed: 0,
   best: parseInt(localStorage.getItem(BEST_SCORE_KEY) || "0", 10),
 };
 
@@ -817,6 +829,8 @@ const sfx = {
 // ============================================================
 function startGame() {
   ensureAudio(); // 必须在用户点击里初始化，否则 iOS 不出声
+  requestGyro(); // 同理，陀螺仪权限也要在用户手势里申请
+  gyroNeutral = null; // 重新校准"水平"角度（这一刻怎么拿就是水平）
   state.phase = "running";
   state.speed = START_SPEED;
   state.distance = 0;
@@ -832,24 +846,28 @@ function startGame() {
   state.jumpBuffer = 0;
   state.slideOnLand = false;
   state.cameraShake = 0;
+  state.invincible = 0;
+  state.revivesUsed = 0;
 
   playerHolder.position.set(0, 0, PLAYER_Z);
 
   initChunks();
   startLayer.classList.add("hidden");
   gameoverLayer.classList.add("hidden");
+  quizLayer.classList.add("hidden");
   hitFlash.classList.remove("show");
 
   updateHUD();
 }
 
-// 撞击瞬间：镜头震动 + 红闪，稍后再弹出结算界面
+// 撞击瞬间：镜头震动 + 红闪，稍后进入答题复活环节
 function hitObstacle() {
+  if (state.invincible > 0) return; // 复活后的短暂无敌
   state.phase = "dying";
   state.cameraShake = 0.45;
   sfx.crash();
   hitFlash.classList.add("show");
-  setTimeout(showGameOver, 700);
+  setTimeout(showQuizOffer, 700);
 }
 
 function showGameOver() {
@@ -873,6 +891,202 @@ function showGameOver() {
   gameoverLayer.classList.remove("hidden");
 }
 
+// ============================================================
+// 复活答题：答对 5 题中的 3 题就能原地复活
+// 题库在 src/questions.js（上海小学三年级 语文/数学/英语）
+// ============================================================
+const QUIZ_TOTAL = 5;
+const QUIZ_PASS = 3;
+let quiz = null; // { list, idx, correct, wrong }
+const usedQuestions = new Set(); // 本次打开游戏已出过的题，尽量不重复
+
+function showQuizOffer() {
+  state.phase = "quiz";
+  hitFlash.classList.remove("show");
+  quizProgress.textContent = "📚 答题复活";
+  quizSubject.textContent = "";
+  quizDots.textContent = "";
+  quizQuestion.innerHTML = `答对 <b>${QUIZ_TOTAL}</b> 题中的 <b>${QUIZ_PASS}</b> 题，就能原地复活继续跑！`;
+  quizFeedback.textContent = "";
+  quizFeedback.className = "quiz-feedback";
+  quizAnswers.innerHTML = "";
+
+  const btnGo = document.createElement("button");
+  btnGo.className = "quiz-btn quiz-btn-primary";
+  btnGo.textContent = "开始答题";
+  btnGo.addEventListener("click", startQuiz);
+  const btnNo = document.createElement("button");
+  btnNo.className = "quiz-btn";
+  btnNo.textContent = "结束本局";
+  btnNo.addEventListener("click", () => {
+    quizLayer.classList.add("hidden");
+    showGameOver();
+  });
+  quizAnswers.append(btnGo, btnNo);
+  quizLayer.classList.remove("hidden");
+}
+
+// 随机抽 5 题，优先抽没出过的
+function pickQuestions() {
+  let poolIdx = QUESTIONS.map((_, i) => i).filter((i) => !usedQuestions.has(i));
+  if (poolIdx.length < QUIZ_TOTAL) {
+    usedQuestions.clear(); // 题都出过一轮了，重新开始
+    poolIdx = QUESTIONS.map((_, i) => i);
+  }
+  const picked = [];
+  while (picked.length < QUIZ_TOTAL) {
+    const k = Math.floor(Math.random() * poolIdx.length);
+    const qi = poolIdx.splice(k, 1)[0];
+    usedQuestions.add(qi);
+    picked.push(QUESTIONS[qi]);
+  }
+  return picked;
+}
+
+function startQuiz() {
+  quiz = { list: pickQuestions(), idx: 0, correct: 0, wrong: 0 };
+  renderQuestion();
+}
+
+function renderDots() {
+  let dots = "";
+  for (let i = 0; i < QUIZ_TOTAL; i++) {
+    if (i < quiz.answers?.length) dots += quiz.answers[i] ? "🟢" : "🔴";
+    else dots += "⚪";
+  }
+  quizDots.textContent = dots;
+}
+
+function renderQuestion() {
+  const q = quiz.list[quiz.idx];
+  quizProgress.textContent = `第 ${quiz.idx + 1} / ${QUIZ_TOTAL} 题`;
+  quizSubject.textContent = q.sub;
+  renderDots();
+  quizQuestion.textContent = q.q;
+  quizFeedback.textContent = "";
+  quizFeedback.className = "quiz-feedback";
+  quizAnswers.innerHTML = "";
+
+  if (q.type === "choice") {
+    const labels = ["A", "B", "C", "D"];
+    q.options.forEach((opt, i) => {
+      const btn = document.createElement("button");
+      btn.className = "quiz-btn quiz-option";
+      btn.textContent = `${labels[i]}. ${opt}`;
+      btn.addEventListener("click", () => submitAnswer(i === q.answer, `${labels[q.answer]}. ${q.options[q.answer]}`));
+      quizAnswers.appendChild(btn);
+    });
+  } else if (q.type === "judge") {
+    for (const val of [true, false]) {
+      const btn = document.createElement("button");
+      btn.className = "quiz-btn quiz-option quiz-judge";
+      btn.textContent = val ? "✓ 对" : "✗ 错";
+      btn.addEventListener("click", () => submitAnswer(val === q.answer, q.answer ? "对" : "错"));
+      quizAnswers.appendChild(btn);
+    }
+  } else {
+    // 填空题
+    const input = document.createElement("input");
+    input.className = "quiz-input";
+    input.placeholder = "在这里输入答案";
+    input.autocomplete = "off";
+    const btn = document.createElement("button");
+    btn.className = "quiz-btn quiz-btn-primary";
+    btn.textContent = "确定";
+    const doSubmit = () => {
+      const v = normalizeAnswer(input.value);
+      if (!v) return;
+      const ok = q.answer.some((a) => normalizeAnswer(a) === v);
+      submitAnswer(ok, q.answer[0]);
+    };
+    btn.addEventListener("click", doSubmit);
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation(); // 别让全局按键处理抢走输入
+      if (e.key === "Enter") doSubmit();
+    });
+    quizAnswers.append(input, btn);
+    setTimeout(() => input.focus(), 50);
+  }
+}
+
+function normalizeAnswer(s) {
+  return String(s).trim().toLowerCase().replace(/\s+/g, "");
+}
+
+function submitAnswer(ok, correctText) {
+  if (!quiz.answers) quiz.answers = [];
+  quiz.answers.push(ok);
+  if (ok) {
+    quiz.correct++;
+    quizFeedback.textContent = "✓ 答对啦！";
+    quizFeedback.className = "quiz-feedback ok";
+    sfx.coin();
+  } else {
+    quiz.wrong++;
+    quizFeedback.textContent = `✗ 正确答案：${correctText}`;
+    quizFeedback.className = "quiz-feedback bad";
+    tone(200, 120, 0.25, "square", 0.12);
+  }
+  renderDots();
+  for (const el of quizAnswers.querySelectorAll("button, input")) el.disabled = true;
+
+  setTimeout(() => {
+    if (quiz.correct >= QUIZ_PASS) return finishQuiz(true); // 提前达标
+    if (quiz.wrong > QUIZ_TOTAL - QUIZ_PASS) return finishQuiz(false); // 已经不可能达标
+    quiz.idx++;
+    renderQuestion();
+  }, ok ? 900 : 2000);
+}
+
+function finishQuiz(pass) {
+  quizProgress.textContent = pass ? "🎉 通过！" : "😢 没通过";
+  quizSubject.textContent = "";
+  quizQuestion.textContent = pass
+    ? `答对 ${quiz.correct} 题，复活成功，继续跑！`
+    : `答对 ${quiz.correct} 题，差一点点，下次加油！`;
+  quizAnswers.innerHTML = "";
+  quizFeedback.textContent = "";
+  quizFeedback.className = "quiz-feedback";
+  if (pass) sfx.jump();
+
+  setTimeout(() => {
+    quizLayer.classList.add("hidden");
+    if (pass) revive();
+    else showGameOver();
+  }, 1400);
+}
+
+function revive() {
+  clearObstaclesAhead(35); // 面前的障碍全部清掉，不能复活即死
+  state.speed = Math.max(START_SPEED, state.speed * 0.6); // 降点速，缓一缓
+  state.invincible = 2.5; // 短暂无敌（小人闪烁）
+  state.revivesUsed++;
+  state.playerY = 0;
+  state.playerVelY = 0;
+  state.jumping = false;
+  state.falling = false;
+  state.sliding = false;
+  state.jumpBuffer = 0;
+  state.slideOnLand = false;
+  hitFlash.classList.remove("show");
+  state.phase = "running";
+}
+
+function clearObstaclesAhead(dist) {
+  for (const chunk of chunks) {
+    for (let i = chunk.obstacles.length - 1; i >= 0; i--) {
+      const obs = chunk.obstacles[i];
+      const worldZ = obs.mesh.position.z + chunk.group.position.z;
+      const zNear = worldZ + obs.d / 2;
+      const zFar = worldZ - obs.d / 2;
+      if (zNear > PLAYER_Z - dist && zFar < PLAYER_Z + 8) {
+        chunk.group.remove(obs.mesh);
+        chunk.obstacles.splice(i, 1);
+      }
+    }
+  }
+}
+
 function updatePlayer(dt) {
   // Speed increase
   state.speed = Math.min(MAX_SPEED, state.speed + SPEED_ACCEL * dt);
@@ -880,6 +1094,16 @@ function updatePlayer(dt) {
   state.score += state.speed * dt * 0.5;
 
   moveWorld(state.speed * dt);
+
+  // 复活后的无敌时间：倒计时 + 小人闪烁
+  if (state.invincible > 0) {
+    state.invincible -= dt;
+    charGroup.visible = Math.floor(performance.now() / 120) % 2 === 0;
+    if (state.invincible <= 0) charGroup.visible = true;
+  }
+
+  // 陀螺仪：按当前倾斜角选车道
+  applyGyroLane();
 
   // Lane movement (smooth lerp)
   const targetX = LANE_X[state.lane];
@@ -927,8 +1151,11 @@ function updatePlayer(dt) {
     // 表面一帧内突然抬升太多 = 一堵墙怼在脸上（高速时防止穿过车头判定）。
     // 阈值要大于斜坡的最大合法爬升（满速+低帧率时一帧约 0.93m），否则会误判
     if (surface > state.playerY + 1.2) {
-      hitObstacle();
-      return;
+      if (state.invincible <= 0) {
+        hitObstacle();
+        return;
+      }
+      // 无敌期间直接弹上表面，不判撞
     }
     // 贴着表面跑（斜坡上表面在升高，跟着爬上去）
     state.playerY = surface;
@@ -1099,6 +1326,59 @@ function updateHUD() {
 }
 
 // ============================================================
+// 陀螺仪换道（iPad 左右倾斜）
+//
+// 把 iPad 当方向盘：向左倾斜 = 左车道，放平 = 中间，向右 = 右车道。
+// 开始游戏那一刻的角度会被记为"水平"（校准），所以怎么舒服怎么拿。
+// 带回滞：进入侧车道要倾斜 >12°，回中间只要 <7°，避免在边界抖动。
+// ============================================================
+const TILT_ENTER = 12; // 倾斜超过这个角度 -> 进侧车道
+const TILT_EXIT = 7; // 回正到这个角度以内 -> 回中间车道
+let gyroActive = false; // 是否收到过有效的陀螺仪数据
+let gyroPermissionAsked = false;
+let gyroRoll = 0; // 当前左右倾斜角（度）
+let gyroNeutral = null; // 校准的"水平"角度，null = 等待下一个事件时校准
+
+function onDeviceOrientation(e) {
+  if (e.beta === null || e.gamma === null) return;
+  // 屏幕方向不同，"左右倾斜"对应的轴不同
+  const angle = (screen.orientation && screen.orientation.angle) ?? window.orientation ?? 0;
+  let roll;
+  if (angle === 90) roll = e.beta;
+  else if (angle === -90 || angle === 270) roll = -e.beta;
+  else if (angle === 180) roll = -e.gamma;
+  else roll = e.gamma;
+
+  gyroActive = true;
+  gyroRoll = roll;
+  if (gyroNeutral === null) gyroNeutral = roll; // 校准
+}
+
+async function requestGyro() {
+  if (gyroPermissionAsked) return;
+  gyroPermissionAsked = true;
+  try {
+    // iOS 13+ 必须在用户手势里申请权限
+    if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+      const result = await DeviceOrientationEvent.requestPermission();
+      if (result !== "granted") return;
+    }
+    window.addEventListener("deviceorientation", onDeviceOrientation);
+  } catch {
+    // 不支持就算了，还有滑动/按键/按钮
+  }
+}
+
+// 每帧根据倾斜角选车道（在 updatePlayer 里调用）
+function applyGyroLane() {
+  if (!gyroActive || gyroNeutral === null) return;
+  const rel = gyroRoll - gyroNeutral;
+  if (state.lane !== 0 && rel < -TILT_ENTER) state.lane = 0;
+  else if (state.lane !== 2 && rel > TILT_ENTER) state.lane = 2;
+  else if (state.lane !== 1 && Math.abs(rel) < TILT_EXIT) state.lane = 1;
+}
+
+// ============================================================
 // Input
 // 统一用 Pointer 事件：鼠标和触屏共用同一套滑动/点击逻辑
 // ============================================================
@@ -1106,6 +1386,7 @@ function setupInput() {
   // --- Keyboard ---
   window.addEventListener("keydown", (e) => {
     if (e.repeat) return;
+    if (state.phase === "quiz") return; // 答题时不拦截键盘（填空要打字）
     switch (e.code) {
       case "KeyA":
       case "ArrowLeft":
@@ -1136,75 +1417,21 @@ function setupInput() {
     }
   });
 
-  // --- Virtual joystick（左下角摇杆，拨动方向触发动作） ---
-  let joyMaxR = 46;
-  let joyTriggerR = 28;
-  let joyRearmR = 13;
-  let joyPointerId = null;
-  let joyCenterX = 0;
-  let joyCenterY = 0;
-  let joyLastDir = null;
-
-  function joyAction(dir) {
-    if (dir === "left") moveLeft();
-    else if (dir === "right") moveRight();
-    else if (dir === "up") jump();
-    else if (dir === "down") slide();
+  // --- 左右两侧大按钮：左手拇指 = 蹲，右手拇指 = 跳 ---
+  function bindBtn(el, action) {
+    if (!el) return;
+    el.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      action();
+    });
+    el.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
   }
-
-  function joyMove(e) {
-    const dx = e.clientX - joyCenterX;
-    const dy = e.clientY - joyCenterY;
-    const mag = Math.hypot(dx, dy);
-
-    const clamped = Math.min(mag, joyMaxR);
-    const nx = mag > 0 ? dx / mag : 0;
-    const ny = mag > 0 ? dy / mag : 0;
-    joystickKnob.style.transform = `translate(${nx * clamped}px, ${ny * clamped}px)`;
-
-    if (mag < joyRearmR) {
-      joyLastDir = null; // 回中，重新武装
-      return;
-    }
-    if (mag >= joyTriggerR) {
-      const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
-      if (dir !== joyLastDir) {
-        joyLastDir = dir;
-        joyAction(dir);
-      }
-    }
-  }
-
-  joystick.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    joyPointerId = e.pointerId;
-    joystick.setPointerCapture(e.pointerId);
-    const rect = joystick.getBoundingClientRect();
-    joyCenterX = rect.left + rect.width / 2;
-    joyCenterY = rect.top + rect.height / 2;
-    joyMaxR = rect.width * 0.31;
-    joyTriggerR = rect.width * 0.19;
-    joyRearmR = rect.width * 0.09;
-    joyLastDir = null;
-    joystick.classList.add("active");
-    joyMove(e);
-  });
-
-  joystick.addEventListener("pointermove", (e) => {
-    if (e.pointerId === joyPointerId) joyMove(e);
-  });
-
-  function joyRelease(e) {
-    if (e.pointerId !== joyPointerId) return;
-    joyPointerId = null;
-    joyLastDir = null;
-    joystick.classList.remove("active");
-    joystickKnob.style.transform = "translate(0px, 0px)";
-  }
-
-  joystick.addEventListener("pointerup", joyRelease);
-  joystick.addEventListener("pointercancel", joyRelease);
+  bindBtn(btnSlide, slide);
+  bindBtn(btnJump, jump);
 
   // --- Swipe / tap（鼠标和触屏统一处理） ---
   const SWIPE_THRESHOLD = 26;

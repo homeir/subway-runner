@@ -21,10 +21,15 @@ await writeFile(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
 await writeFile(versionPath, `export const APP_VERSION = "${packageJson.version}";\n`);
 
 const mainJs = await readFile(mainPath, "utf8");
-const nextMainJs = mainJs.replace(
-  /import \{ APP_VERSION \} from "\.\/version\.js(?:\?v=[^"]+)?";/,
-  `import { APP_VERSION } from "./version.js?v=${packageJson.version}";`,
-);
+const nextMainJs = mainJs
+  .replace(
+    /import \{ APP_VERSION \} from "\.\/version\.js(?:\?v=[^"]+)?";/,
+    `import { APP_VERSION } from "./version.js?v=${packageJson.version}";`,
+  )
+  .replace(
+    /import \{ QUESTIONS \} from "\.\/questions\.js(?:\?v=[^"]+)?";/,
+    `import { QUESTIONS } from "./questions.js?v=${packageJson.version}";`,
+  );
 await writeFile(mainPath, nextMainJs);
 
 const indexHtml = await readFile(indexPath, "utf8");

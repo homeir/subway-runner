@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
     <title>地铁跑酷</title>
-    <link rel="stylesheet" href="./src/styles.css?v=0.5.0" />
+    <link rel="stylesheet" href="./src/styles.css?v=0.6.0" />
     <script type="importmap">
       {
         "imports": {
@@ -53,13 +53,12 @@
           <h1 class="game-title">地铁跑酷</h1>
           <p class="game-subtitle">Subway Runner</p>
           <button class="start-button" id="startButton" type="button">开始</button>
-          <div class="version-badge" id="versionBadge">v0.5.0</div>
+          <div class="version-badge" id="versionBadge">v0.6.0</div>
           <div class="controls-hint">
-            <div class="control-row"><span class="hint-icon">↔️</span><span>左右滑动 / 方向键换道</span></div>
-            <div class="control-row"><span class="hint-icon">⬆️</span><span>上滑、点按屏幕或空格跳跃</span></div>
-            <div class="control-row"><span class="hint-icon">⬇️</span><span>下滑或 S 键滑铲，空中下滑快速落地</span></div>
+            <div class="control-row"><span class="hint-icon">📱</span><span>左右倾斜 iPad 换道（也可以左右滑动）</span></div>
+            <div class="control-row"><span class="hint-icon">⬆️</span><span>右侧按钮跳跃，左侧按钮下蹲</span></div>
             <div class="control-row"><span class="hint-icon">🚇</span><span>顺着木斜坡跑上列车车顶吃金币</span></div>
-            <div class="control-row"><span class="hint-icon">🕹️</span><span>或者拨动左下角的摇杆</span></div>
+            <div class="control-row"><span class="hint-icon">📚</span><span>撞到障碍答对 5 题中 3 题就能复活</span></div>
           </div>
         </div>
       </div>
@@ -79,13 +78,28 @@
         </div>
       </div>
 
-      <!-- Virtual joystick: 左下角虚拟摇杆，拨动方向触发动作 -->
-      <div class="joystick" id="joystick" aria-label="虚拟摇杆">
-        <span class="joy-hint joy-up">▲</span>
-        <span class="joy-hint joy-down">▼</span>
-        <span class="joy-hint joy-left">◀</span>
-        <span class="joy-hint joy-right">▶</span>
-        <div class="joystick-knob" id="joystickKnob"></div>
+      <!-- 左右两侧大按钮：横屏握持时左右拇指直接按 -->
+      <button class="side-btn side-btn-left" id="btnSlide" type="button" aria-label="下蹲">
+        <span class="side-btn-icon">⬇️</span>
+        <span class="side-btn-label">蹲</span>
+      </button>
+      <button class="side-btn side-btn-right" id="btnJump" type="button" aria-label="跳跃">
+        <span class="side-btn-icon">⬆️</span>
+        <span class="side-btn-label">跳</span>
+      </button>
+
+      <!-- 复活答题界面 -->
+      <div class="quiz-layer hidden" id="quizLayer">
+        <div class="quiz-panel">
+          <div class="quiz-head">
+            <span class="quiz-progress" id="quizProgress">答题复活</span>
+            <span class="quiz-subject" id="quizSubject"></span>
+            <span class="quiz-dots" id="quizDots"></span>
+          </div>
+          <div class="quiz-question" id="quizQuestion"></div>
+          <div class="quiz-answers" id="quizAnswers"></div>
+          <div class="quiz-feedback" id="quizFeedback"></div>
+        </div>
       </div>
 
       <!-- Touch zone for swipe gestures (full screen) -->
@@ -95,6 +109,6 @@
       <div class="hit-flash" id="hitFlash"></div>
     </main>
 
-    <script type="module" src="./src/main.js?v=0.5.0"></script>
+    <script type="module" src="./src/main.js?v=0.6.0"></script>
   </body>
 </html>

@@ -389,65 +389,215 @@ html, body {
   touch-action: none;
 }
 
-/* ========== On-screen touch buttons ========== */
+/* ========== 左右两侧大按钮（蹲 / 跳） ========== */
+/* 横屏双手握持时，两只大拇指正好落在屏幕左右两侧偏下的位置 */
 
-/* ========== Virtual joystick（左下角虚拟摇杆） ========== */
-/* 横屏握持时左手拇指自然落在左下角，摇杆放这里不用挪手；
-   右手拇指仍然可以在屏幕任意位置滑动 */
-
-.joystick {
+.side-btn {
   position: absolute;
-  left: max(24px, env(safe-area-inset-left, 24px));
-  bottom: max(10%, calc(env(safe-area-inset-bottom, 0px) + 40px));
-  width: 150px;
-  height: 150px;
+  bottom: max(14%, calc(env(safe-area-inset-bottom, 0px) + 56px));
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
   border: 2px solid var(--glass-border);
   background: var(--glass);
   backdrop-filter: blur(16px) saturate(160%);
   -webkit-backdrop-filter: blur(16px) saturate(160%);
+  color: var(--fg);
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 2px;
   z-index: 15;
+  cursor: pointer;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.1s ease, background 0.1s ease;
 }
 
-.joystick.active {
-  border-color: rgba(0, 212, 255, 0.45);
-  box-shadow: 0 0 24px rgba(0, 212, 255, 0.25);
+.side-btn:active {
+  transform: scale(0.9);
 }
 
-/* 四个方向的提示箭头 */
-.joy-hint {
+.side-btn-left {
+  left: max(20px, env(safe-area-inset-left, 20px));
+  background: rgba(255, 107, 53, 0.15);
+  border-color: rgba(255, 107, 53, 0.35);
+}
+
+.side-btn-left:active {
+  background: rgba(255, 107, 53, 0.35);
+}
+
+.side-btn-right {
+  right: max(20px, env(safe-area-inset-right, 20px));
+  background: rgba(0, 212, 255, 0.15);
+  border-color: rgba(0, 212, 255, 0.35);
+}
+
+.side-btn-right:active {
+  background: rgba(0, 212, 255, 0.35);
+}
+
+.side-btn-icon {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.side-btn-label {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+/* ========== 复活答题 ========== */
+
+.quiz-layer {
   position: absolute;
-  font-size: 14px;
-  opacity: 0.35;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(10, 14, 26, 0.75), rgba(10, 14, 26, 0.95));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 30;
+  transition: opacity 0.3s ease;
+}
+
+.quiz-layer.hidden {
+  opacity: 0;
   pointer-events: none;
 }
 
-.joy-up { top: 8px; left: 50%; transform: translateX(-50%); }
-.joy-down { bottom: 8px; left: 50%; transform: translateX(-50%); }
-.joy-left { left: 10px; top: 50%; transform: translateY(-50%); }
-.joy-right { right: 10px; top: 50%; transform: translateY(-50%); }
-
-.joystick-knob {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, rgba(120, 225, 255, 0.85), rgba(0, 150, 220, 0.75));
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), inset 0 -4px 10px rgba(0, 40, 80, 0.4);
-  pointer-events: none;
-  transition: transform 0.16s cubic-bezier(0.22, 1.4, 0.36, 1); /* 松手弹回 */
+.quiz-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(520px, 92vw);
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 28px 32px;
+  background: var(--glass);
+  backdrop-filter: blur(30px) saturate(200%);
+  -webkit-backdrop-filter: blur(30px) saturate(200%);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  box-shadow: var(--shadow);
 }
 
-.joystick.active .joystick-knob {
-  transition: none; /* 拖动时无延迟跟手 */
+.quiz-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.quiz-progress {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.quiz-subject {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(0, 212, 255, 0.18);
+  color: var(--accent);
+  letter-spacing: 2px;
+}
+
+.quiz-subject:empty {
+  display: none;
+}
+
+.quiz-dots {
+  margin-left: auto;
+  font-size: 13px;
+  letter-spacing: 3px;
+}
+
+.quiz-question {
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.5;
+  min-height: 32px;
+}
+
+.quiz-answers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quiz-btn {
+  padding: 13px 18px;
+  font-size: 17px;
+  font-weight: 600;
+  text-align: left;
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.quiz-btn:not(:disabled):hover {
+  background: rgba(0, 212, 255, 0.15);
+}
+
+.quiz-btn:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+.quiz-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.quiz-btn-primary {
+  text-align: center;
+  background: linear-gradient(135deg, var(--accent), #0098ff);
+  border: none;
+  color: #fff;
+  font-weight: 700;
+}
+
+.quiz-judge {
+  text-align: center;
+  font-size: 19px;
+}
+
+.quiz-input {
+  padding: 13px 16px;
+  font-size: 18px;
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  outline: none;
+}
+
+.quiz-input:focus {
+  border-color: var(--accent);
+}
+
+.quiz-feedback {
+  min-height: 26px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.quiz-feedback.ok {
+  color: #4ade80;
+}
+
+.quiz-feedback.bad {
+  color: var(--danger);
 }
 
 /* ========== Animations ========== */
@@ -488,13 +638,12 @@ html, body {
   .gameover-panel {
     padding: 32px 32px;
   }
-  .joystick {
-    width: 132px;
-    height: 132px;
+  .side-btn {
+    width: 84px;
+    height: 84px;
   }
-  .joystick-knob {
-    width: 56px;
-    height: 56px;
+  .quiz-question {
+    font-size: 19px;
   }
 }
 
@@ -505,13 +654,14 @@ html, body {
   .score-value {
     font-size: 16px;
   }
-  .joystick {
-    width: 118px;
-    height: 118px;
-    left: max(14px, env(safe-area-inset-left, 14px));
+  .side-btn {
+    width: 74px;
+    height: 74px;
   }
-  .joystick-knob {
-    width: 50px;
-    height: 50px;
+  .side-btn-icon {
+    font-size: 22px;
+  }
+  .quiz-panel {
+    padding: 22px 20px;
   }
 }
